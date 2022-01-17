@@ -1,2 +1,2 @@
-# Master-thesis
-Repo for master thesis project 
+# Modelling patient trajectories
+Master thesis for modelling patient trajectories using Transformers. 
