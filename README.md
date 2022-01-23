@@ -7,4 +7,4 @@ Master thesis for modelling patient trajectories using Transformers.
 ## Dataset
 
 
-## Dependencies
+## Requirements
