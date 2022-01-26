@@ -3,6 +3,8 @@ import pandas as pd
 from pyspark import SparkContext, SparkConf
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import udf,col
+import pyspark.sql.functions as F
+import numpy as np
 
 class PatientProcessor(object):
     
@@ -22,8 +24,19 @@ class PatientProcessor(object):
             .getOrCreate()
         return spark
 
-
+    def __vocabulary_to_txt__(self, df):
+        
+        age_array = np.array(df.select('anchor_age').distinct().collect()).flatten()
+        
+        codes_array = np.array(df.select('icd_code').distinct().collect()).flatten()
+        
+        np.save('age_voc', age_array)
+        np.save('code_voc', codes_array)
+            
+        
+    
     def __process__(self):
+        
         spark = self.__init_spark__()
         parent_path = self.parent_path
         
@@ -59,27 +72,38 @@ class PatientProcessor(object):
         
         columns_ = [c for c in pat_data.columns if c not in needed_columns]
         
-        new = pat_data.drop(*columns_).na.drop()
+        df = pat_data.drop(*columns_).na.drop()
         
-        self.pat_data = new
-    
+        df = df.filter('icd_version == 10')
+        
+        self.__vocabulary_to_txt__(df)
+        
+        
+        
+        
+        df = df.groupby(['subject_id', 'hadm_id']).agg(F.collect_list('icd_code').alias('icd_code'),\
+                                                           F.collect_list('anchor_age').alias('age'))\
+        .withColumn("icd_code",F.concat(F.col('icd_code'), F.array(F.lit('SEP')))).withColumn('age', F.concat(F.col('age'),\
+                                                                                                              F.array(F.lit('SEP'))))\
+        .withColumn('icd_code', F.concat_ws(",", F.col('icd_code'))).withColumn('age', F.concat_ws(",", F.col('age')))
+        
+        
+        df = df.groupby(['subject_id']).agg(F.collect_list('icd_code').alias('icd_code'), F.collect_list('age').alias('age'))\
+        .withColumn('icd_code', F.concat_ws(',', F.col('icd_code'))).withColumn('age', F.concat_ws(',', F.col('age')))
+        
+        
+        self.data = df
+        
+
     def getData(self):
-        return self.pat_data
+        return self.data
         
     def write_data(self, path):
         
-        if path_data is None:
+        if not (path and self.data):
             return None
         
-        self.path_data.write.option('header', True).csv(path)
-        
-        
-        
-        
-        
-        
-        
-        
+        self.data.write.option('header', True).csv(path)
         
 
 if __name__ == "__main__":
