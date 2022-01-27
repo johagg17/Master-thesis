@@ -1,4 +1,2 @@
-class BertConfig(object):
-    pass
 
 
