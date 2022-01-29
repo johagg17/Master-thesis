@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 from csv import reader
 import torch
 import random
+import numpy as np
 
 def index_seq(tokens, symbol='[SEP]'):
     flag = 0
@@ -49,7 +50,7 @@ def position_idx(tokens, symbol='[SEP]'):
 
 
 
-def random_mask(tokens, symbol='[MASK]', tokenizer):
+def random_mask(tokens, tokenizer, symbol='[MASK]'):
     output_label = []
     output_token = []
     for i, token in enumerate(tokens):
@@ -65,17 +66,16 @@ def random_mask(tokens, symbol='[MASK]', tokenizer):
             # 10% randomly change token to random token
             
             elif prob < 0.9:
-                pass
-                #output_token.append(random.choice(list(token2idx.values()))) # This row is for randomly choose a token
+                output_token.append(random.choice(list(tokenizer.getVoc('code').keys()))) # This row is for randomly choose a token
 
             # -> rest 10% randomly keep current token
 
             # append current token to output (we will predict these later
-            output_label.append(token2idx.get(token, token2idx['UNK'])) # Unclear
+            output_label.append(token) # Unclear
         else:
             # no masking token (will be ignored by loss function later)
             output_label.append(-1)
-            output_token.append(token2idx.get(token, token2idx['UNK']))
+            output_token.append(token)
 
     return tokens, output_token, output_label
 
@@ -85,8 +85,8 @@ class EHRDataset(Dataset):
     def __init__(self, dataframe, max_len=64, tokenizer=None):
         super(EHRDataset, self).__init__()
         
-        self.age = dataframe['age']
-        self.code = dataframe['icd_code']    
+        self.age = dataframe.dropna()['age']
+        self.code = dataframe.dropna()['icd_code'] 
         self.max_len = max_len
         
         self.tokenizer = tokenizer
@@ -94,7 +94,7 @@ class EHRDataset(Dataset):
         
     def __getitem__(self, index):
         
-        
+       # print(index)
         age = self.age[index].replace('SEP', '[SEP]').split(',')[(-self.max_len):]
         codes = self.code[index].replace('SEP', '[SEP]').split(',')[(-self.max_len):]
         
@@ -111,8 +111,7 @@ class EHRDataset(Dataset):
         
         age = seq_padding(age, self.max_len)
         
-        tokens, code, label = random_mask(code, tokenizer)
-        
+        tokens, code, label = random_mask(codes, self.tokenizer)
         
         tokens = seq_padding(tokens, self.max_len)
         position = position_idx(tokens)
@@ -122,12 +121,11 @@ class EHRDataset(Dataset):
         codes = seq_padding(codes, self.max_len)
         label = seq_padding(label, self.max_len, symbol=-1)
         
-        
         age_ids = self.tokenizer.convert_tokens_to_ids(age)
         code_ids = self.tokenizer.convert_tokens_to_ids(codes)
+        label = self.tokenizer.convert_tokens_to_ids(label)
         
-        
-        return torch.LongTensor(age_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), \ 
+        return torch.LongTensor(age_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), \
     torch.LongTensor(mask), torch.LongTensor(label)
         
         
