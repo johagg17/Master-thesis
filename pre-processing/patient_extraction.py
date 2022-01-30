@@ -5,13 +5,14 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import udf,col
 import pyspark.sql.functions as F
 import numpy as np
+from pyspark.sql import Window
 
 class PatientProcessor(object):
     
-    def __init__(self, parent_path, **files):
+    def __init__(self, parent_path): #**files=None):
         
         self.parent_path = parent_path
-        self.files = files
+       # self.files = files
         self.pat_data = None
         self.__process__()
 
@@ -68,7 +69,7 @@ class PatientProcessor(object):
                                                                    (patients_admissions.hadm_id == patients_diagnoses.h_id)) ,\
                                               'inner').drop('sub2', 'h_id')
         
-        needed_columns = set(['subject_id', 'anchor_age', 'hadm_id', 'admittime', 'dischtime', 'icd_code', 'icd_version', 'long_title'])
+        needed_columns = set(['subject_id', 'anchor_age', 'hadm_id', 'icd_code', 'icd_version'])
         
         columns_ = [c for c in pat_data.columns if c not in needed_columns]
         
@@ -76,10 +77,30 @@ class PatientProcessor(object):
         
         df = df.filter('icd_version == 10')
         
-        self.__vocabulary_to_txt__(df)
+        #self.__vocabulary_to_txt__(df)
+        
+        df = df.groupby(['subject_id', 'hadm_id']).agg(F.collect_list('icd_code').alias('icd_code'),\
+                                                           F.collect_list('anchor_age').alias('age'))\
+        .withColumn("icd_code",F.concat(F.col('icd_code'), F.array(F.lit('SEP'))))
         
         
+        extract_age = F.udf(lambda x: x[0])
         
+        df = df.withColumn('age_temp', extract_age('age')).withColumn('age', 
+                                                                      F.concat(F.col('age'),F.array(F.col('age_temp')))).drop('age_temp')
+        
+        w = Window.partitionBy('subject_id').orderBy('hadm_id')
+        
+        
+        df = df.withColumn('icd_code', F.collect_list('icd_code').over(w))\
+        .withColumn('age', F.collect_list('age').over(w)).groupBy('subject_id').agg(F.max('icd_code').alias('icd_code'),\
+                                                                               F.max('age').alias('age'))
+        
+        
+        df = df.withColumn('icd_code', F.flatten(F.col('icd_code')).alias('icd_code'))
+        df = df.withColumn('age', F.flatten(F.col('age')).alias('age'))
+        
+        '''
         
         df = df.groupby(['subject_id', 'hadm_id']).agg(F.collect_list('icd_code').alias('icd_code'),\
                                                            F.collect_list('anchor_age').alias('age'))\
@@ -91,7 +112,7 @@ class PatientProcessor(object):
         df = df.groupby(['subject_id']).agg(F.collect_list('icd_code').alias('icd_code'), F.collect_list('age').alias('age'))\
         .withColumn('icd_code', F.concat_ws(',', F.col('icd_code'))).withColumn('age', F.concat_ws(',', F.col('age')))
         
-        
+        '''
         self.data = df
         
 

@@ -85,8 +85,8 @@ class EHRDataset(Dataset):
     def __init__(self, dataframe, max_len=64, tokenizer=None):
         super(EHRDataset, self).__init__()
         
-        self.age = dataframe.dropna()['age']
-        self.code = dataframe.dropna()['icd_code'] 
+        self.age = dataframe['age']
+        self.code = dataframe['icd_code'] 
         self.max_len = max_len
         
         self.tokenizer = tokenizer
@@ -94,10 +94,17 @@ class EHRDataset(Dataset):
         
     def __getitem__(self, index):
         
-       # print(index)
-        age = self.age[index].replace('SEP', '[SEP]').split(',')[(-self.max_len):]
-        codes = self.code[index].replace('SEP', '[SEP]').split(',')[(-self.max_len):]
+        #print(index)
+        #age = self.age.iloc[index].replace('SEP', '[SEP]').split(',')[(-self.max_len):]
+        #codes = self.code.iloc[index].replace('SEP', '[SEP]').split(',')[(-self.max_len):]
         
+        age = self.age.iloc[index][(-self.max_len + 1):]
+        codes = self.code.iloc[index][(-self.max_len + 1):]
+        
+       # print("Len of ageframe: {}", len(age))
+       # print("Len of codeframe: {}", len(codes))
+        
+        codes = ['[SEP]' if x == 'SEP' else x for x in codes]
         # Start by tokenizing the visits
         # Then add special tokens
         # Transform the data, when index is in into:
@@ -106,9 +113,10 @@ class EHRDataset(Dataset):
         mask[len(codes):] = 0
         
         
-        age.insert(0, '[CLS]')
+        #age.insert(0, '[CLS]')
         codes.insert(0, '[CLS]')
         
+      #  print(age)
         age = seq_padding(age, self.max_len)
         
         tokens, code, label = random_mask(codes, self.tokenizer)
@@ -121,9 +129,9 @@ class EHRDataset(Dataset):
         codes = seq_padding(codes, self.max_len)
         label = seq_padding(label, self.max_len, symbol=-1)
         
-        age_ids = self.tokenizer.convert_tokens_to_ids(age)
-        code_ids = self.tokenizer.convert_tokens_to_ids(codes)
-        label = self.tokenizer.convert_tokens_to_ids(label)
+        age_ids = self.tokenizer.convert_tokens_to_ids(age, 'age')
+        code_ids = self.tokenizer.convert_tokens_to_ids(codes, 'code')
+        label = self.tokenizer.convert_tokens_to_ids(label, 'code')
         
         return torch.LongTensor(age_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), \
     torch.LongTensor(mask), torch.LongTensor(label)

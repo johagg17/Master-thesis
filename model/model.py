@@ -61,6 +61,7 @@ class BertEmbeddings(nn.Module):
         self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size)
         self.segment_embeddings = nn.Embedding(config.seg_vocab_size, config.hidden_size)
         self.age_embeddings = nn.Embedding(config.age_vocab_size, config.hidden_size)
+        #print("AGE vocab size", config.age_vocab_size)
         self.posi_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size). \
             from_pretrained(embeddings=self._init_posi_embedding(config.max_position_embeddings, config.hidden_size))
 
@@ -74,7 +75,7 @@ class BertEmbeddings(nn.Module):
             age_ids = torch.zeros_like(word_ids)
         if posi_ids is None:
             posi_ids = torch.zeros_like(word_ids)
-
+            
         word_embed = self.word_embeddings(word_ids)
         segment_embed = self.segment_embeddings(seg_ids)
         age_embed = self.age_embeddings(age_ids)
@@ -123,7 +124,7 @@ class BertModel(Bert.modeling.BertPreTrainedModel):
                 output_all_encoded_layers=True):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
-        if not (age_ids is None):
+        if age_ids is None:
             age_ids = torch.zeros_like(input_ids)
         if seg_ids is None:
             seg_ids = torch.zeros_like(input_ids)

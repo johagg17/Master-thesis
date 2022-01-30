@@ -45,26 +45,28 @@ class EHRTokenizer(object):
         return specific_voc
       
     
-    def convert_tokens_to_ids(self, tokens):
+    def convert_tokens_to_ids(self, tokens, voc):
         """Converts a sequence of tokens into ids using the vocab."""
         ids = []
+        vocab = self.age_voc if voc=='age' else self.code_voc
         for token in tokens:
             if str(token) == '-1':
                 ids.append(-1)
             else:    
-                ids.append(self.vocab.word2idx[token])
+                ids.append(vocab.word2idx[token])
         return ids
 
     
-    def convert_ids_to_tokens(self, ids):
+    def convert_ids_to_tokens(self, ids, voc):
         
         """Converts a sequence of ids in wordpiece tokens using the vocab."""
         tokens = []
+        vocab = self.age_voc if voc=='age' else self.code_voc
         for i in ids:
             if str(i) == '-1':
                 tokens.append('-1')
             else:
-                tokens.append(self.vocab.idx2word[i])
+                tokens.append(vocab.idx2word[i])
         return tokens
     
     def getVoc(self, voc_str):
