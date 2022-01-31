@@ -87,6 +87,8 @@ lint/tmp/
 # CSV
 *.csv
 
+# parquet
+*.parquet
 #Numpy
 *.npy
 
