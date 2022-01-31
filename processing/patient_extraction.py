@@ -99,20 +99,6 @@ class PatientProcessor(object):
         
         df = df.withColumn('icd_code', F.flatten(F.col('icd_code')).alias('icd_code'))
         df = df.withColumn('age', F.flatten(F.col('age')).alias('age'))
-        
-        '''
-        
-        df = df.groupby(['subject_id', 'hadm_id']).agg(F.collect_list('icd_code').alias('icd_code'),\
-                                                           F.collect_list('anchor_age').alias('age'))\
-        .withColumn("icd_code",F.concat(F.col('icd_code'), F.array(F.lit('SEP')))).withColumn('age', F.concat(F.col('age'),\
-                                                                                                              F.array(F.lit('SEP'))))\
-        .withColumn('icd_code', F.concat_ws(",", F.col('icd_code'))).withColumn('age', F.concat_ws(",", F.col('age')))
-        
-        
-        df = df.groupby(['subject_id']).agg(F.collect_list('icd_code').alias('icd_code'), F.collect_list('age').alias('age'))\
-        .withColumn('icd_code', F.concat_ws(',', F.col('icd_code'))).withColumn('age', F.concat_ws(',', F.col('age')))
-        
-        '''
         self.data = df
         
 
@@ -123,8 +109,8 @@ class PatientProcessor(object):
         
         if not (path and self.data):
             return None
-        
-        self.data.write.option('header', True).csv(path)
+        self.data.coalesce(1).write.option("header", "true").parquet(path)
+        #self.data.write.option('header', True).csv(path)
         
 
 if __name__ == "__main__":
