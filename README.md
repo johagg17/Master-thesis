@@ -8,3 +8,6 @@ Master thesis for modelling patient trajectories using Transformers.
 
 
 ## Requirements
+
+
+## How to
