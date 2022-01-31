@@ -22,4 +22,3 @@ The dataset is accessible by taking a course at [CITI](https://about.citiprogram
 * Java jdk = 1.8.0_281
 * Python = 3.7.11 
 
-## How to
