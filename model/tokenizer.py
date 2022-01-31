@@ -16,9 +16,7 @@ class Voc(object):
         return self.word2idx
     
                 
-                
-                
-                                
+                                                
 class EHRTokenizer(object):
     def __init__(self, special_tokens = ("[PAD]", "[CLS]", "[MASK]", "[SEP]")):
         
@@ -26,10 +24,10 @@ class EHRTokenizer(object):
         
         self.vocab.add_sentence(special_tokens)
         
-        self.code_voc = self.add_vocab(r'C:\Users\Johan\Documents\Skola\MasterThesis\Master-thesis\pre-processing\code_voc.npy'.replace('\\', '/'))
+        self.code_voc = self.add_vocab(r'pre-processing\code_voc.npy'.replace('\\', '/'))
         
         self.code_voc.add_sentence(special_tokens)
-        self.age_voc = self.add_vocab(r'C:\Users\Johan\Documents\Skola\MasterThesis\Master-thesis\pre-processing\age_voc.npy'.replace('\\', '/'))
+        self.age_voc = self.add_vocab(r'pre-processing\age_voc.npy'.replace('\\', '/'))
         self.age_voc.add_sentence(special_tokens)
         
         
