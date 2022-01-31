@@ -16,6 +16,10 @@ For this project we use [MIMIC-IV](https://physionet.org/content/mimiciv/0.4/) d
 The dataset is accessible by taking a course at [CITI](https://about.citiprogram.org/courses/?reset=true), and here is a more in-depth guide for accessing [MIMIC dataset](https://towardsdatascience.com/getting-access-to-mimic-iii-hospital-database-for-data-science-projects-791813feb735), though this guide covers MIMIC-III, but the steps for accessing MIMIC-IV should be the same as accessing MIMIC-III. 
 
 ## Requirements
-* Listed in the requirements.txt file. 
+* Most of the requirements are listed in the requirements.txt file.  
+* Spark version = 2.4.7
+* Hadoop version = 2.7
+* Java jdk = 1.8.0_281
+* Python = 3.7.11 
 
 ## How to
