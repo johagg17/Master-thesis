@@ -24,10 +24,10 @@ class EHRTokenizer(object):
         
         self.vocab.add_sentence(special_tokens)
         
-        self.code_voc = self.add_vocab(r'pre-processing\code_voc.npy'.replace('\\', '/'))
+        self.code_voc = self.add_vocab(r'processing\code_voc.npy'.replace('\\', '/'))
         
         self.code_voc.add_sentence(special_tokens)
-        self.age_voc = self.add_vocab(r'pre-processing\age_voc.npy'.replace('\\', '/'))
+        self.age_voc = self.add_vocab(r'processing\age_voc.npy'.replace('\\', '/'))
         self.age_voc.add_sentence(special_tokens)
         
         
