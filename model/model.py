@@ -46,7 +46,7 @@ class BERT(nn.Module):
 
 '''
 # For MLM
-import pytorch_pretrained_bert as Bert
+#import pytorch_pretrained_bert as Bert
 
 import torch
 import torch.nn as nn
@@ -549,6 +549,7 @@ class BertForMaskedLM(PreTrainedBertModel):
         super(BertForMaskedLM, self).__init__(config)
        # print("Inside Bert MLM")
        # print("Going into Bert model")
+        print(config)
         self.bert = BertModel(config)
         #print("Going into BertonlyMLMHead")
         self.cls = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
