@@ -7,8 +7,10 @@ class BertConfig(object):
     """
 
     def __init__(self,
-                 vocab_size_or_config_json_file,
+                 vocab_size=10,
                  hidden_size=300,
+                 seg_vocab_size=2,
+                 age_vocab_size=10,
                  num_hidden_layers=2,
                  num_attention_heads=4,
                  intermediate_size=300,
@@ -44,14 +46,16 @@ class BertConfig(object):
             initializer_range: The sttdev of the truncated_normal_initializer for
                 initializing all weight matrices.
         """
-        if isinstance(vocab_size_or_config_json_file, str):
-            with open(vocab_size_or_config_json_file, "r", encoding='utf-8') as reader:
+        if isinstance(vocab_size, str):
+            with open(vocab_size, "r", encoding='utf-8') as reader:
                 json_config = json.loads(reader.read())
             for key, value in json_config.items():
                 self.__dict__[key] = value
-        elif isinstance(vocab_size_or_config_json_file, int):
-            self.vocab_size = vocab_size_or_config_json_file
+        elif isinstance(vocab_size, int):
+            self.vocab_size = vocab_size
             self.hidden_size = hidden_size
+            self.seg_vocab_size = seg_vocab_size
+            self.age_vocab_size = age_vocab_size
             self.num_hidden_layers = num_hidden_layers
             self.num_attention_heads = num_attention_heads
             self.hidden_act = hidden_act

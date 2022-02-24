@@ -46,13 +46,15 @@ class BERT(nn.Module):
 
 '''
 # For MLM
-#import pytorch_pretrained_bert as Bert
+import pytorch_pretrained_bert as Bert
+
 import torch
 import torch.nn as nn
 import numpy as np
+import math as math
+from utils.config import BertConfig
 
-
-
+            
 def gelu(x):
     """Implementation of the gelu activation function.
         For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
@@ -67,11 +69,16 @@ def swish(x):
 
 ACT2FN = {"gelu": gelu, "relu": torch.nn.functional.relu, "swish": swish}
 
+
+
+
+        
 class BertLayerNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-12):
         """Construct a layernorm module in the TF style (epsilon inside the square root).
         """
-        super(LayerNorm, self).__init__()
+        super(BertLayerNorm, self).__init__()
+        
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.bias = nn.Parameter(torch.zeros(hidden_size))
         self.variance_epsilon = eps
@@ -83,21 +90,26 @@ class BertLayerNorm(nn.Module):
         return self.weight * x + self.bias
     
 
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len,dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float()*(-math.log(10000.0) / d_model))        
-        pe[:, 0::2] = torch.sin(position * div_term)        
-        pe[:, 1::2] = torch.cos(position * div_term)        
-        pe = pe.unsqueeze(0).transpose(0, 1)        
+class PositionalEmbedding(nn.Module):
+
+    def __init__(self, d_model, max_len=512):
+        super().__init__()
+
+        # Compute the positional encodings once in log space.
+        pe = torch.zeros(max_len, d_model).float()
+        pe.require_grad = False
+
+        position = torch.arange(0, max_len).float().unsqueeze(1)
+        div_term = (torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)).exp()
+
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+
+        pe = pe.unsqueeze(0)
         self.register_buffer('pe', pe)
-        
+
     def forward(self, x):
-        x = x + self.pe[:x.size(0), :]        
-        return self.dropout(x)
+        return self.pe[:, :x.size(1)]
     
     
     
@@ -111,7 +123,7 @@ class BertEmbeddings(nn.Module):
         self.segment_embeddings = nn.Embedding(config.seg_vocab_size, config.hidden_size)
         self.age_embeddings = nn.Embedding(config.age_vocab_size, config.hidden_size)
         #print("AGE vocab size", config.age_vocab_size)
-        self.posi_embeddings = PositionalEncoding(config.hidden_size, max_len=config.hidden_size)
+        self.posi_embeddings = PositionalEmbedding(config.hidden_size, max_len=config.hidden_size)
         
         
         #self.posi_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size). \
@@ -220,7 +232,7 @@ class BertSelfOutput(nn.Module):
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config)
+        self.LayerNorm = BertLayerNorm(config.hidden_size)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, input_tensor):
@@ -233,6 +245,7 @@ class BertSelfOutput(nn.Module):
 class BertAttention(nn.Module):
     def __init__(self, config):
         super(BertAttention, self).__init__()
+        #print("going into bert selfatterntion")
         self.self = BertSelfAttention(config)
         self.output = BertSelfOutput(config)
 
@@ -259,7 +272,7 @@ class BertOutput(nn.Module):
     def __init__(self, config):
         super(BertOutput, self).__init__()
         self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config)
+        self.LayerNorm = BertLayerNorm(config.hidden_size)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, hidden_states, input_tensor):
@@ -272,8 +285,12 @@ class BertOutput(nn.Module):
 class BertLayer(nn.Module):
     def __init__(self, config):
         super(BertLayer, self).__init__()
+        #print("Inside BertLayer")
+       # print("going to attention")
         self.attention = BertAttention(config)
+       # print("bertintermediate")
         self.intermediate = BertIntermediate(config)
+       # print("Bert output")
         self.output = BertOutput(config)
 
     def forward(self, hidden_states, attention_mask):
@@ -286,8 +303,9 @@ class BertLayer(nn.Module):
 class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
-        layer = BertLayer(config)
-        self.layer = nn.ModuleList([copy.deepcopy(layer) for _ in range(config.num_hidden_layers)])    
+        #print("Inside Bert Encoder")
+        #layer = BertLayer(config=config)
+        self.layer = nn.ModuleList([BertLayer(config=config) for _ in range(config.num_hidden_layers)])    
 
     def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True):
         all_encoder_layers = []
@@ -336,8 +354,8 @@ class PreTrainedBertModel(nn.Module):
             # cf https://github.com/pytorch/pytorch/pull/5617
             module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, BertLayerNorm):
-            module.beta.data.normal_(mean=0.0, std=self.config.initializer_range)
-            module.gamma.data.normal_(mean=0.0, std=self.config.initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            module.bias.data.normal_(mean=0.0, std=self.config.initializer_range)
         if isinstance(module, nn.Linear) and module.bias is not None:
             module.bias.data.zero_()
 
@@ -433,7 +451,10 @@ class PreTrainedBertModel(nn.Module):
 class BertModel(PreTrainedBertModel):#Bert.modeling.BertPreTrainedModel):
     def __init__(self, config):
         super(BertModel, self).__init__(config)
+       # print("Inside BertModel", config)
+        #print("Going into BertEmbeddings")
         self.embeddings = BertEmbeddings(config=config)
+        #print("Going into Encoder")
         self.encoder = BertEncoder(config=config) #Bert.modeling.BertEncoder(config=config)
         self.pooler = BertPooler(config=config)  #Bert.modeling.BertPooler(config)
         self.apply(self.init_bert_weights)
@@ -485,7 +506,7 @@ class BertPredictionHeadTransform(nn.Module):
         self.dense = nn.Linear(config.hidden_size, config.hidden_size)
         self.transform_act_fn = ACT2FN[config.hidden_act] \
             if isinstance(config.hidden_act, str) else config.hidden_act
-        self.LayerNorm = BertLayerNorm(config)
+        self.LayerNorm = BertLayerNorm(config.hidden_size)
 
     def forward(self, hidden_states):
         hidden_states = self.dense(hidden_states)
@@ -513,12 +534,24 @@ class BertLMPredictionHead(nn.Module):
         return hidden_states
 
     
+class BertOnlyMLMHead(nn.Module):
+    def __init__(self, config, bert_model_embedding_weights):
+        super(BertOnlyMLMHead, self).__init__()
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
+
+    def forward(self, sequence_output):
+        prediction_scores = self.predictions(sequence_output)
+        return prediction_scores
+    
     
 class BertForMaskedLM(PreTrainedBertModel):
     def __init__(self, config):
         super(BertForMaskedLM, self).__init__(config)
+       # print("Inside Bert MLM")
+       # print("Going into Bert model")
         self.bert = BertModel(config)
-        self.cls = Bert.modeling.BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
+        #print("Going into BertonlyMLMHead")
+        self.cls = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, age_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, masked_lm_labels=None):
@@ -526,7 +559,7 @@ class BertForMaskedLM(PreTrainedBertModel):
         sequence_output, _ = self.bert(input_ids, age_ids, seg_ids, posi_ids, attention_mask,
                                        output_all_encoded_layers=False)
         
-        print("Bert is used")
+       # print("Bert is used")
         prediction_scores = self.cls(sequence_output)
 
         if masked_lm_labels is not None:
