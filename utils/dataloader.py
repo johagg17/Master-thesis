@@ -2,6 +2,9 @@ from torch.utils.data import DataLoader
 from dataset import EHRDataset
 
 
+
+# Currently not used
+
 class EHRDataLoader(DataLoader):
     
     def __init__(self, dataset_path):

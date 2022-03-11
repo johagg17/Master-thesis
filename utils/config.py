@@ -2,6 +2,8 @@ import json
 import copy
 
 
+# Currently not used
+
 class BertConfig(object):
     """Configuration class to store the configuration of a `BertModel`.
     """
@@ -11,6 +13,7 @@ class BertConfig(object):
                  hidden_size=300,
                  seg_vocab_size=2,
                  age_vocab_size=10,
+                 gender_vocab_size=2,
                  num_hidden_layers=2,
                  num_attention_heads=4,
                  intermediate_size=300,
@@ -56,6 +59,7 @@ class BertConfig(object):
             self.hidden_size = hidden_size
             self.seg_vocab_size = seg_vocab_size
             self.age_vocab_size = age_vocab_size
+            self.gender_vocab_size = gender_vocab_size
             self.num_hidden_layers = num_hidden_layers
             self.num_attention_heads = num_attention_heads
             self.hidden_act = hidden_act

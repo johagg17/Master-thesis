@@ -1,6 +1,11 @@
 import numpy as np
 
+'''
+This file contains implementation for the custom EHRtokenizer. 
 
+In convert_tokens_to_ids and convert_ids_to_tokens, the -1 is an additional functionality we added when doing the masked language modeling. We will make this more consistent as soon as possible. 
+
+'''
 class Voc(object):
     def __init__(self):
         self.idx2word = {}
@@ -21,37 +26,52 @@ class EHRTokenizer(object):
     def __init__(self, special_tokens = ("[PAD]", "[CLS]", "[MASK]", "[SEP]")):
         
         self.vocab = Voc()
-        
         self.vocab.add_sentence(special_tokens)
         
-        self.code_voc = self.add_vocab(r'processing\code_voc.npy'.replace('\\', '/'))
-        
+        self.code_voc = Voc()
+        self.add_vocab(r'..\processing\ccsr_voc.npy'.replace('\\', '/'), self.code_voc)
         self.code_voc.add_sentence(special_tokens)
-        self.age_voc = self.add_vocab(r'processing\age_voc.npy'.replace('\\', '/'))
-        self.age_voc.add_sentence(special_tokens)
+        self.code_voc.add_sentence(['0', '1']) # for tobacco and alcohol use
+        
+        self.gender_voc = Voc()
+        self.gender_voc.add_sentence(['M', 'F', '[PAD]']) # Gender, not being used atm
+        
+        self.age_voc = Voc()
+        self.add_vocab(r'..\processing\agevoc2.npy'.replace('\\', '/'), self.age_voc)
+        self.age_voc.add_sentence(['[PAD]'])
         
         
-    def add_vocab(self, vocab_file):
-        voc = self.vocab
-        array = list(map(str,np.load(vocab_file)))
+        # Used for nextvisit
+        self.label_voc = Voc()
+        self.add_vocab('../processing/label_voc.npy', self.label_voc)
+        #self.age_voc.add_sentence(['[PAD]']) Pad with zeros
         
-        voc.add_sentence(array)
-        
-        specific_voc = Voc()
-        specific_voc.add_sentence(array)
-        
-        return specific_voc
-      
-    
+    def add_vocab(self, vocab_file, vocab):
+        voc = vocab
+        vocarray = list(map(str,np.load(vocab_file)))
+        voc.add_sentence(vocarray)
+  
     def convert_tokens_to_ids(self, tokens, voc):
         """Converts a sequence of tokens into ids using the vocab."""
+        
+        '''
+            This if-statements needs to be fixed, could be replaced with a dict instead
+        '''
         ids = []
-        vocab = self.age_voc if voc=='age' else self.code_voc
+        if voc=='code':
+            vocab=self.code_voc
+        elif voc=='gender':
+            vocab=self.gender_voc
+        elif voc=='label':
+            vocab=self.label_voc
+        else:
+            vocab=self.age_voc
+            
         for token in tokens:
             if str(token) == '-1':
                 ids.append(-1)
             else:    
-                ids.append(vocab.word2idx[token])
+                ids.append(vocab.word2idx[str(token)]) # needs to be fixed 
         return ids
 
     
@@ -59,7 +79,18 @@ class EHRTokenizer(object):
         
         """Converts a sequence of ids in wordpiece tokens using the vocab."""
         tokens = []
-        vocab = self.age_voc if voc=='age' else self.code_voc
+        '''
+            This if-statements needs to be fixed, could be replaced with a dict instead
+        '''
+        if voc=='code':
+            vocab=self.code_voc
+        elif voc=='gender':
+            vocab=self.gender_voc
+        elif voc=='label':
+            vocab=self.label_voc
+        else:
+            vocab=self.age_voc
+            
         for i in ids:
             if str(i) == '-1':
                 tokens.append('-1')
@@ -69,11 +100,15 @@ class EHRTokenizer(object):
     
     def getVoc(self, voc_str):
         
-        if voc_str == 'age':
-            return self.age_voc.get()
+        # Replace if statements with a dictionary
+        if voc_str == 'gender':
+            return self.gender_voc.get()
         elif voc_str == 'code':
             return self.code_voc.get()
+        elif voc_str == 'label':
+            return self.label_voc.get()
         else:
-            return self.vocab.get()
+            return self.age_voc.get()
+            
             
 
