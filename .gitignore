@@ -93,6 +93,11 @@ lint/tmp/
 #Numpy
 *.npy
 
+# Tensorboard logs
+*.logs
+logs
+.logs
+
 # Python
 .ipynb_checkpoints
 __pycache__
