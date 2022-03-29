@@ -12,26 +12,31 @@ class BertEmbeddings(nn.Module):
         self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size)
         self.segment_embeddings = nn.Embedding(config.seg_vocab_size, config.hidden_size)
         self.age_embeddings = nn.Embedding(config.age_vocab_size, config.hidden_size)
+        self.gender_embeddings = nn.Embedding(config.gender_vocab_size, config.hidden_size)
         self.posi_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size).from_pretrained(embeddings=self._init_posi_embedding(config.max_position_embeddings, config.hidden_size))
 
         self.LayerNorm = Bert.modeling.BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, word_ids, age_ids=None, seg_ids=None, posi_ids=None, age=True):
+    def forward(self, word_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, age=True):
         if seg_ids is None:
             seg_ids = torch.zeros_like(word_ids)
         if age_ids is None:
             age_ids = torch.zeros_like(word_ids)
+        if gender_ids is None:
+            gender_ids = torch.zeros_like(word_ids)
+            
         if posi_ids is None:
             posi_ids = torch.zeros_like(word_ids)
 
         word_embed = self.word_embeddings(word_ids)
         segment_embed = self.segment_embeddings(seg_ids)
         age_embed = self.age_embeddings(age_ids)
+        gender_ids = self.gender_embeddings(gender_ids)
         posi_embeddings = self.posi_embeddings(posi_ids)
 
         if age:
-            embeddings = word_embed + segment_embed + age_embed + posi_embeddings
+            embeddings = word_embed + segment_embed + age_embed + gender_ids + posi_embeddings
         else:
             embeddings = word_embed + segment_embed + posi_embeddings
         embeddings = self.LayerNorm(embeddings)
@@ -69,12 +74,16 @@ class BertModel(Bert.modeling.BertPreTrainedModel):
         self.pooler = Bert.modeling.BertPooler(config)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, age_ids=None, seg_ids=None, posi_ids=None, attention_mask=None,
+    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None,
                 output_all_encoded_layers=True):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
         if age_ids is None:
             age_ids = torch.zeros_like(input_ids)
+            
+        if gender_ids is None:
+            gender_ids = torch.zeros_like(input_ids)
+            
         if seg_ids is None:
             seg_ids = torch.zeros_like(input_ids)
         if posi_ids is None:
@@ -95,7 +104,7 @@ class BertModel(Bert.modeling.BertPreTrainedModel):
         extended_attention_mask = extended_attention_mask.to(dtype=next(self.parameters()).dtype)  # fp16 compatibility
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 
-        embedding_output = self.embeddings(input_ids, age_ids, seg_ids, posi_ids)
+        embedding_output = self.embeddings(input_ids, age_ids, gender_ids, seg_ids, posi_ids)
         encoded_layers = self.encoder(embedding_output,
                                       extended_attention_mask,
                                       output_all_encoded_layers=output_all_encoded_layers)
@@ -114,7 +123,7 @@ class BertForMaskedLM(Bert.modeling.BertPreTrainedModel):
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None):
-        sequence_output, _ = self.bert(input_ids, age_ids, seg_ids, posi_ids, attention_mask,
+        sequence_output, _ = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask,
                                        output_all_encoded_layers=False)
         prediction_scores = self.cls(sequence_output)
 
@@ -124,3 +133,61 @@ class BertForMaskedLM(Bert.modeling.BertPreTrainedModel):
             return masked_lm_loss, prediction_scores.view(-1, self.config.vocab_size), labels.view(-1)
         else:
             return prediction_scores
+        
+        
+class BertForReadmission(Bert.modeling.BertPreTrainedModel):
+    def __init__(self, config, num_labels):
+        super(BertForReadmission, self).__init__(config)
+        
+        self.num_labels = num_labels
+        self.bert = BertModel(config)
+        self.drop = nn.Dropout(config.hidden_dropout_prob)
+        
+        self.classifier = nn.Linear(config.hidden_size, num_labels)
+        
+        self.apply(self.init_bert_weights)
+        
+    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None):
+
+        _, poolout = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, output_all_encoded_layers=False)
+
+        output = self.drop(poolout)
+
+        output = self.classifier(output)
+
+        if labels is not None:
+            output = torch.squeeze(output)
+            output = nn.Sigmoid()(output)
+            labels = labels[labels != -1].float()
+            loss = nn.BCELoss()(output.view(-1, self.num_labels), labels.view(-1, self.num_labels))
+            return loss, output, labels
+        else:
+            return output
+
+    
+class BertMultiLabelPrediction(Bert.modeling.BertPreTrainedModel):
+    
+    def __init__(self, config, num_labels):
+        super(BertMultiLabelPrediction, self).__init__(config)
+        
+        self.num_labels = num_labels
+        self.bert = BertModel(config)
+        self.drop = nn.Dropout(config.hidden_dropout_prob)
+        
+        self.classifier = nn.Linear(config.hidden_size, num_labels)
+        
+        self.apply(self.init_bert_weights)
+        
+        
+    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None):
+        _, poolout = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, output_all_encoded_layers=False)
+        
+        output = self.drop(poolout)
+        
+        output = self.classifier(output)
+        
+        if labels is not None:
+            loss = nn.MultiLabelSoftMarginLoss()(output.view(-1, self.num_labels), labels.view(-1, self.num_labels))
+            return loss, output, labels
+        else:
+            return output

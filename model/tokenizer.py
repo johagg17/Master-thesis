@@ -23,7 +23,8 @@ class Voc(object):
                 
                                                 
 class EHRTokenizer(object):
-    def __init__(self, special_tokens = ("[PAD]", "[CLS]", "[MASK]", "[SEP]")):
+    def __init__(self, task, special_tokens = ("[PAD]", "[CLS]", "[MASK]", "[SEP]")):
+        
         
         self.vocab = Voc()
         self.vocab.add_sentence(special_tokens)
@@ -31,19 +32,23 @@ class EHRTokenizer(object):
         self.code_voc = Voc()
         self.add_vocab(r'..\processing\ccsr_voc.npy'.replace('\\', '/'), self.code_voc)
         self.code_voc.add_sentence(special_tokens)
-        self.code_voc.add_sentence(['0', '1']) # for tobacco and alcohol use
         
         self.gender_voc = Voc()
-        self.gender_voc.add_sentence(['M', 'F', '[PAD]']) # Gender, not being used atm
+        self.gender_voc.add_sentence(['M', 'F', '[PAD]'])
         
         self.age_voc = Voc()
         self.add_vocab(r'..\processing\agevoc2.npy'.replace('\\', '/'), self.age_voc)
         self.age_voc.add_sentence(['[PAD]'])
         
         
+        
         # Used for nextvisit
         self.label_voc = Voc()
-        self.add_vocab('../processing/label_voc.npy', self.label_voc)
+        path = '../processing/labelsvoc_ccsr.npy'
+        if task == 'ndc':
+            path = '../processing/labelsvoc_ndc.npy'
+        self.add_vocab(path, self.label_voc)
+        
         #self.age_voc.add_sentence(['[PAD]']) Pad with zeros
         
     def add_vocab(self, vocab_file, vocab):

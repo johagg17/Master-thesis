@@ -136,13 +136,16 @@ class EHRDataset(Dataset):
             for _, row in data.iterrows():
                 patient_id, nradm, icd_codes, ndc_codes = row['subject_id'], len(list(row['hadm_id'])), list(row['ccsr']), list(row['ndc'])
                 age, gender = list(row['age']), list(row['gender'])
-                tobacco_abuse, alcohol_abuse = list(row['tobacco_abuse']), list(row['alcohol_abuse'])
+                #tobacco_abuse, alcohol_abuse = list(row['tobacco_abuse']), list(row['alcohol_abuse'])
                 admission_input, adm_age, adm_gender = [], [], []
                 for i in range(nradm):
-                    total_len = len(icd_codes[i]) + len([str(alcohol_abuse[i]), str(tobacco_abuse[i]), '[SEP]'])
+                    total_len = len(icd_codes[i]) + 1 #len(ndc_codes) + 1 # For sep #+ len([str(alcohol_abuse[i]), str(tobacco_abuse[i]), '[SEP]'])
                     admission_input.extend(icd_codes[i])
                     #admission_input.extend(ndc_codes[i])
-                    admission_input.extend([str(alcohol_abuse[i]), str(tobacco_abuse[i]), '[SEP]'])
+                    admission_input.extend(['[SEP]'])
+                  
+                    #admission_input.extend([str(alcohol_abuse[i]), str(tobacco_abuse[i]), '[SEP]'])
+                    
                     adm_age.extend([str(int(age[i]))]*total_len)
                     adm_gender.extend(gender*total_len)
                     
@@ -221,14 +224,12 @@ class EHRDataset(Dataset):
         return len(self.code)
     
     
-## This dataset is used for the prediction tasks
-
-'''
-class EHRDatasetPredictionTask(Dataset):
     
-    def __init__(self, dataframe, max_len=64, tokenizer=None, prediction_task='readmission'):
+class EHRDatasetReadmission(Dataset):
+    
+    def __init__(self, dataframe, max_len=64, tokenizer=None):
         
-        
+        self.data = dataframe
         self.age = dataframe['age']
         self.alchoholabuse = dataframe['alcohol_abuse']
         self.tobbaco_abuse = dataframe['tobacco_abuse']
@@ -238,28 +239,28 @@ class EHRDatasetPredictionTask(Dataset):
         self.ids = dataframe.subject_id
         self.tokenizer = tokenizer
         
-        self.prediction_task = prediction_task
+        #self.prediction_task = prediction_task
         
         def _transform_data(data):
             patient_records = {} 
             for _, row in data.iterrows():
-                patient_id, nradm, icd_codes = row['subject_id'], len(list(row['hadm_id'])), list(row['icd_code'])
+                patient_id, nradm, icd_codes = row['subject_id'], len(list(row['hadm_id'])), list(row['ccsr'])
                 age, gender = list(row['age']), list(row['gender'])
-                tobacco_abuse, alcohol_abuse = list(row['tobacco_abuse']), list(row['alcohol_abuse'])
                 lab = list(row['label'])
-                admission_input, adm_age, adm_gender, labels = ['[CLS]'], [], [], []
+                admission_input, adm_age, adm_gender, labels = [], [], [], []
                 nvisits = 2
                 if nradm < nvisits:
                     nvisits = nradm
-                #print(nvisits)
+                    
                 for i in range(nvisits):
-                    total_len = len(icd_codes[i]) + len([str(alcohol_abuse[i]), str(tobacco_abuse[i]), '[SEP]'])
+                    total_len = len(icd_codes[i]) + 1
                     admission_input.extend(icd_codes[i]) 
-                    admission_input.extend([str(alcohol_abuse[i]), str(tobacco_abuse[i]), '[SEP]'])
+                    admission_input.extend(['[SEP]'])
+                    
                     adm_age.extend([str(int(age[i]))]*total_len)
                     adm_gender.extend(gender*total_len)
                     
-                labels = lab if self.prediction_task == 'visit' else [lab[nvisits - 1]]
+                labels = [lab[nvisits - 1]]
                     
                 patient_records[int(patient_id)] = [admission_input, adm_age, adm_gender, labels]
                 
@@ -272,22 +273,20 @@ class EHRDatasetPredictionTask(Dataset):
         patid = int(self.ids.iloc[index])
         
         record = self.patdata[patid]
-                
-        codes = record[0]
-        
-        age = record[1]
-        age.insert(0, age[0])
-        
-        gender = record[2]
-        gender.insert(0, gender[0])
         
         
-        labels = record[3]
+        codes, age, gender, labels = record        
         
-        #print(labels)
         age = age[(-self.max_len + 1):]
         gender = gender[(-self.max_len + 1):]
         codes = codes[(-self.max_len + 1):]
+        
+        if codes[0] != '[SEP]': 
+            codes = np.append(np.array(['[CLS]']), codes)
+            age = np.append(np.array(age[0]), age)
+            gender.insert(0, gender[0])
+        else:
+            codes[0] = '[CLS]'
         
         mask = np.ones(self.max_len)
         mask[len(codes):] = 0
@@ -309,14 +308,108 @@ class EHRDatasetPredictionTask(Dataset):
         gender_ids = self.tokenizer.convert_tokens_to_ids(gender, 'gender')
         code_ids = self.tokenizer.convert_tokens_to_ids(codes, 'code')
         
-        if self.prediction_task!='readmission':
-            label = self.tokenizer.convert_tokens_to_ids(label, 'label')
+        #if self.prediction_task!='readmission':
+        #    label = self.tokenizer.convert_tokens_to_ids(label, 'label')
             
         return torch.LongTensor(age_ids), torch.LongTensor(gender_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), torch.LongTensor(mask), torch.LongTensor(label), torch.LongTensor([int(patid)])
         
     def __len__(self):
-        return len(self.ids)
-'''
+        return len(self.data)
+    
+    
+    
+## This dataset is used for the prediction tasks
+
+class EHRDatasetCodePrediction(Dataset):
+    
+    def __init__(self, dataframe, max_len=64, tokenizer=None, prediction_task='ccsr'):
+        
+        self.data = dataframe
+        self.age = dataframe['age']
+        self.alchoholabuse = dataframe['alcohol_abuse']
+        self.tobbaco_abuse = dataframe['tobacco_abuse']
+        self.code = dataframe['icd_code']
+        self.gender = dataframe['gender']
+        self.max_len = max_len
+        self.ids = dataframe.subject_id
+        self.tokenizer = tokenizer
+        
+        self.prediction_task = prediction_task
+        
+        def _transform_data(data):
+            patient_records = {} 
+            for _, row in data.iterrows():
+                patient_id, nradm, icd_codes = row['subject_id'], len(list(row['hadm_id'])), list(row['ccsr_traincodes'])
+                age, gender = list(row['age']), list(row['gender'])
+                if prediction_task == 'ccsr':
+                    lab = list(row['ccsr_labels'])
+                else:
+                    lab = list(row['ndc_labels'])
+                    
+                    
+                admission_input, adm_age, adm_gender, labels = [], [], [], []
+                
+                
+                for i in range(nradm - 1):
+                    total_len = len(icd_codes[i]) + 1
+                    admission_input.extend(icd_codes[i]) 
+                    admission_input.extend(['[SEP]'])
+                    
+                    adm_age.extend([str(int(age[i]))]*total_len)
+                    adm_gender.extend(gender*total_len)
+                    
+                patient_records[int(patient_id)] = [admission_input, adm_age, adm_gender, lab]
+                
+            return patient_records
+        records = _transform_data(dataframe) 
+        self.patdata = records
+        
+    def __getitem__(self, index):
+        
+        patid = int(self.ids.iloc[index])
+        
+        record = self.patdata[patid]
+        
+        
+        codes, age, gender, labels = record        
+        
+        age = age[(-self.max_len + 1):]
+        gender = gender[(-self.max_len + 1):]
+        codes = codes[(-self.max_len + 1):]
+        
+        if codes[0] != '[SEP]': 
+            codes = np.append(np.array(['[CLS]']), codes)
+            age = np.append(np.array(age[0]), age)
+            gender.insert(0, gender[0])
+        else:
+            codes[0] = '[CLS]'
+        
+        mask = np.ones(self.max_len)
+        mask[len(codes):] = 0
+        
+        
+        age = seq_padding(age, self.max_len)
+        gender = seq_padding(gender, self.max_len)
+        labels = seq_padding(labels, self.max_len, symbol=-1)
+        tokens = codes 
+        
+        tokens = seq_padding(tokens, self.max_len)
+        position = position_idx(tokens)
+        segment = index_seq(tokens)
+        
+        
+        codes = seq_padding(codes, self.max_len)
+        
+        age_ids = self.tokenizer.convert_tokens_to_ids(age, 'age')
+        gender_ids = self.tokenizer.convert_tokens_to_ids(gender, 'gender')
+        code_ids = self.tokenizer.convert_tokens_to_ids(codes, 'code')
+        
+        labels = self.tokenizer.convert_tokens_to_ids(labels, 'label')
+            
+        return torch.LongTensor(age_ids), torch.LongTensor(gender_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), torch.LongTensor(mask), torch.LongTensor(labels), torch.LongTensor([int(patid)])
+        
+    def __len__(self):
+        return len(self.data)
         
         
     
