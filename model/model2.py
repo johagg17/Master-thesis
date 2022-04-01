@@ -114,7 +114,7 @@ class BertModel(Bert.modeling.BertPreTrainedModel):
             encoded_layers = encoded_layers[-1]
         return encoded_layers, pooled_output
 
-
+    
 class BertForMaskedLM(Bert.modeling.BertPreTrainedModel):
     def __init__(self, config):
         super(BertForMaskedLM, self).__init__(config)
