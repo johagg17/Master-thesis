@@ -115,10 +115,9 @@ class EHRDataset(Dataset):
         super(EHRDataset, self).__init__()
         
         self.age = dataframe['age']
-        self.alchoholabuse = dataframe['alcohol_abuse']
-        self.tobbaco_abuse = dataframe['tobacco_abuse']
-        self.code = dataframe['icd_code']
+        self.code = dataframe['diagnos_code']
         self.gender = dataframe['gender']
+        self.dataframe = dataframe
         self.max_len = max_len
         self.ids = dataframe.subject_id
         self.tokenizer = tokenizer
@@ -134,22 +133,21 @@ class EHRDataset(Dataset):
             patient_records = {}
             
             for _, row in data.iterrows():
-                patient_id, nradm, icd_codes, ndc_codes = row['subject_id'], len(list(row['hadm_id'])), list(row['ccsr']), list(row['ndc'])
+                patient_id, nradm, icd_codes, ndc_codes = row['subject_id'], len(list(row['hadm_id'])), list(row['diagnos_code']), list(row['medication_code'])
                 age, gender = list(row['age']), list(row['gender'])
-                #tobacco_abuse, alcohol_abuse = list(row['tobacco_abuse']), list(row['alcohol_abuse'])
                 admission_input, adm_age, adm_gender = [], [], []
+                prior_values, prior_indicies = list(row['prior_values']), list(row['prior_indicies']) # Should the visits be seperated ?? 
+                
                 for i in range(nradm):
-                    total_len = len(icd_codes[i]) + 1 #len(ndc_codes) + 1 # For sep #+ len([str(alcohol_abuse[i]), str(tobacco_abuse[i]), '[SEP]'])
+                    total_len = len(icd_codes[i]) +len(ndc_codes) + 1 # total tokenlength = nr_diagnose_codes + nr_medication_codes + SEP_token
                     admission_input.extend(icd_codes[i])
-                    #admission_input.extend(ndc_codes[i])
+                    admission_input.extend(ndc_codes[i])
                     admission_input.extend(['[SEP]'])
-                  
-                    #admission_input.extend([str(alcohol_abuse[i]), str(tobacco_abuse[i]), '[SEP]'])
-                    
+                      
                     adm_age.extend([str(int(age[i]))]*total_len)
                     adm_gender.extend(gender*total_len)
                     
-                patient_records[int(patient_id)] = [admission_input, adm_age, adm_gender]
+                patient_records[patient_id] = [admission_input, adm_age, adm_gender, prior_values, prior_indicies]
                 
             return patient_records
         records = _transform_data(dataframe)    
@@ -167,7 +165,7 @@ class EHRDataset(Dataset):
         
     def __getitem__(self, index):
     
-        patid = int(self.ids.iloc[index])
+        patid = self.ids.iloc[index]
         
         record = self.patdata[patid]
                 
@@ -177,13 +175,36 @@ class EHRDataset(Dataset):
         
         gender = record[2]
         
+        prior_values = record[3]
+        prior_indicies = record[4]
         
-        age = age[(-self.max_len + 1):]
-        gender = gender[(-self.max_len + 1):]
+        ## Cut sequence to the end of a visit
         codes = codes[(-self.max_len + 1):]
+        idxlastsep = len(codes) - codes[::-1].index('[SEP]')
+        codes = codes[:idxlastsep + 1]
+        age = age[:idxlastsep + 1]
+        gender = gender[:idxlastsep + 1]
+        numbervisits = codes.count('[SEP]')
         
+        prior_values = prior_values[:numbervisits]
+        prior_indicies = prior_indicies[:numbervisits]
+        prior_val, prior_indi = [], []
+        for prior_values, prior_ind in zip(prior_values, prior_indicies):
+            prior_val.extend(prior_values), prior_val.extend(['[SEP]'])
+            prior_indi.extend(prior_ind), prior_indi.extend(['[SEP]'])
         
-        ## Add CLS token to codes
+        voc = self.tokenizer.getVoc('code')
+        prior_val = [voc[p] if ((p=='[SEP]') or (p=='[PAD]')) else p for p in prior_val]
+        prior_in = []
+        for indi in prior_indi:
+            if indi not in ['[SEP]', '[PAD]']:
+                code1, code2 = indi.split(',')
+                prior_in.append(voc[code1])
+                prior_in.append(voc[code2])
+            else:
+                prior_in.append(voc[indi])
+                
+        prior_indicies = prior_in
         
         if codes[0] != '[SEP]': # If the first token does not equal SEP, do not overwrite the token, instead insert CLS at the start
             codes = np.append(np.array(['[CLS]']), codes) # Append cls at the start, 
@@ -200,9 +221,8 @@ class EHRDataset(Dataset):
         age = seq_padding(age, self.max_len) # Pad age 
         gender = seq_padding(gender, self.max_len) # Pad gender
         
+        
         tokens, code, label = random_mask(codes, self.tokenizer) # Generate random masking
-        
-        
         
         tokens = seq_padding(tokens, self.max_len) # Pad tokens
         position = position_idx(tokens) # get position
@@ -212,16 +232,21 @@ class EHRDataset(Dataset):
         label = seq_padding(label, self.max_len, symbol=-1) # Pad labels with -1 as symbol, -1 will be ignored by cross entropy loss later
         
         
-        age_ids = self.tokenizer.convert_tokens_to_ids(age, 'age') # Convert age to ids
+        age_ids = [voc[a] if a=='[PAD]' else int(a) for a in age] #self.tokenizer.convert_tokens_to_ids(age, 'age') # Convert age to ids
         gender_ids = self.tokenizer.convert_tokens_to_ids(gender, 'gender') # Convert gender to ids
         code_ids = self.tokenizer.convert_tokens_to_ids(codes, 'code') # Convert codes to ids
-        label = self.tokenizer.convert_tokens_to_ids(label, 'code') # Convert labels to ids
+        label = self.tokenizer.convert_tokens_to_ids(label, 'code') # Convert labels to ids    
         
-        
-        return torch.LongTensor(age_ids), torch.LongTensor(gender_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), torch.LongTensor(mask), torch.LongTensor(label), torch.LongTensor([int(patid)])
+       # if len(prior_val) > len(prior_indicies):
+        #    prior_indicies = seq_padding(prior_indicies, len(prior_val), symbol=-5)
+        #else:
+        #    prior_val = seq_padding(prior_val, len(prior_indicies), symbol=-5)
+            
+        test = [prior_val]    
+        return (torch.LongTensor(age_ids), torch.LongTensor(gender_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), torch.LongTensor(mask), torch.LongTensor(label)), (torch.LongTensor(test))
           
     def __len__(self):
-        return len(self.code)
+        return len(self.dataframe)
     
     
     

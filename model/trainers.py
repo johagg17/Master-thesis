@@ -11,7 +11,7 @@ import torch
 from torchmetrics import AUROC
 from torchmetrics import F1Score
 
-
+import sys
 
 
 '''
@@ -124,6 +124,7 @@ class TrainerCodes(pl.LightningModule):
     
     def training_step(self, batch, batch_idx):
         '''Put comments here'''
+       
         trainingloss, trainingAUC, trainingAUCPR = self.make_predictions(batch)
         
         self.log("Training loss", trainingloss)
@@ -204,29 +205,34 @@ class TrainerMLM(pl.LightningModule):
         return precision
     
     def make_prediction(self, batch):
-        age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, _ = batch
-        
-        loss, pred, labels = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels)
+        age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_val, prior_indicies = batch
+        #print(input_ids)
+        loss, pred, labels = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels,
+                                          prior_val, prior_indicies)
                 
         precision = self.compute_acc(pred, labels)
+        # Compute KL-Divergence loss
         
         return (loss, precision)
         
         
-    def forward(self, age_ids, gender_ids, input_ids, posi_ids, segment_ids, attMask, labels):
+    def forward(self, age_ids, gender_ids, input_ids, posi_ids, segment_ids, attMask, labels, prior_val, prior_indicies):
         '''Comment for function '''
-        return self.model(input_ids, age_ids=age_ids, gender_ids=gender_ids, seg_ids=segment_ids, posi_ids=posi_ids, attention_mask=attMask, labels=labels)
+        return self.model(input_ids, age_ids=age_ids, gender_ids=gender_ids, seg_ids=segment_ids, posi_ids=posi_ids, attention_mask=attMask, labels=labels, prior_val=prior_val, prior_indicies=prior_indicies)
     
     
     def training_step(self, batch, batch_idx):
         '''Put comments here '''
-        
+        #print("batch")
+        #print(batch)
+        #sys.exit(0)
+        #print(batch_idx)
         loss, precision = self.make_prediction(batch)
         
         self.log("Training loss", loss)
         self.log("Training Precision", precision)
         
-        return {'Training loss': loss, 'Training Precision': precision}
+        return {'loss': loss, 'precision': precision}
     
     def validation_step(self, batch, batch_idx):
         '''Put comments here '''
@@ -235,20 +241,20 @@ class TrainerMLM(pl.LightningModule):
         self.log("Validation loss", loss)
         self.log("Validation Precision", precision)
         
-        return {'Validation loss': loss, 'Validation Precision': precision}
+        return {'loss': loss, 'precision': precision}
     
     def test_step(self, batch, batch_idx):
         '''Put comments here '''
         
         loss, precision = self.make_prediction(batch)
         
-        return {'Test loss': loss, 'Test Precision': precision}
+        return {'loss': loss, 'precision': precision}
     
     def predict_step(self, batch, batch_idx):
         
         loss, precision = self.make_prediction(batch)
         
-        return {'Predict loss': loss, 'Predict Precision': precision}
+        return {'loss': loss, 'precision': precision}
     
     def configure_optimizers(self):
         """Put comments here"""

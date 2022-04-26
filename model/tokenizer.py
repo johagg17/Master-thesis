@@ -23,33 +23,39 @@ class Voc(object):
                 
                                                 
 class EHRTokenizer(object):
-    def __init__(self, task, special_tokens = ("[PAD]", "[CLS]", "[MASK]", "[SEP]")):
+    """ 
+        Tokenizer used for managing the vocabularies and 
+    """
+    def __init__(self, task, filenames, special_tokens = ("[PAD]", "[CLS]", "[MASK]", "[SEP]")):
         
         
         self.vocab = Voc()
         self.vocab.add_sentence(special_tokens)
         
+        ## Add code vocabulary, also used as tokens to input to the model.
+        ## Combination of special and code tokens. 
         self.code_voc = Voc()
-        self.add_vocab(r'..\processing\ccsr_voc.npy'.replace('\\', '/'), self.code_voc)
+        file_codevoc = filenames['code']
+        self.add_vocab(file_codevoc, self.code_voc)
         self.code_voc.add_sentence(special_tokens)
         
+        ## Gender vocabulary
         self.gender_voc = Voc()
         self.gender_voc.add_sentence(['M', 'F', '[PAD]'])
         
+        ## Age vocabulary
         self.age_voc = Voc()
-        self.add_vocab(r'..\processing\agevoc2.npy'.replace('\\', '/'), self.age_voc)
+        file_agevoc = filenames['age']
+        self.add_vocab(file_agevoc, self.age_voc)
         self.age_voc.add_sentence(['[PAD]'])
         
-        
-        
         # Used for nextvisit
-        self.label_voc = Voc()
-        path = '../processing/labelsvoc_ccsr.npy'
-        if task == 'ndc':
-            path = '../processing/labelsvoc_ndc.npy'
-        self.add_vocab(path, self.label_voc)
-        
-        #self.age_voc.add_sentence(['[PAD]']) Pad with zeros
+        if task == 'nextvisit':
+            self.label_voc = Voc()
+            path = '../processing/labelsvoc_ccsr.npy'
+            if task == 'ndc':
+                path = '../processing/labelsvoc_ndc.npy'
+            self.add_vocab(path, self.label_voc)
         
     def add_vocab(self, vocab_file, vocab):
         voc = vocab

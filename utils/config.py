@@ -1,104 +1,34 @@
-import json
-import copy
+
+import pytorch_pretrained_bert as Bert
+
+class BertConfig(Bert.modeling.BertConfig):
+    def __init__(self, config):
+        super(BertConfig, self).__init__(
+            vocab_size_or_config_json_file=config.get('vocab_size'),
+            hidden_size=config['hidden_size'],
+            num_hidden_layers=config.get('num_hidden_layers'),
+            num_attention_heads=config.get('num_attention_heads'),
+            intermediate_size=config.get('intermediate_size'),
+            hidden_act=config.get('hidden_act'),
+            hidden_dropout_prob=config.get('hidden_dropout_prob'),
+            attention_probs_dropout_prob=config.get('attention_probs_dropout_prob'),
+            max_position_embeddings = config.get('max_position_embeddings'),
+            initializer_range=config.get('initializer_range'),
+        )
+        self.seg_vocab_size = config.get('seg_vocab_size')
+        self.age_vocab_size = config.get('age_vocab_size')
+        self.gender_vocab_size = config.get('gender_vocab_size')
 
 
-# Currently not used
-
-class BertConfig(object):
-    """Configuration class to store the configuration of a `BertModel`.
-    """
-
-    def __init__(self,
-                 vocab_size=10,
-                 hidden_size=300,
-                 seg_vocab_size=2,
-                 age_vocab_size=10,
-                 gender_vocab_size=2,
-                 num_hidden_layers=2,
-                 num_attention_heads=4,
-                 intermediate_size=300,
-                 hidden_act="relu",
-                 hidden_dropout_prob=0.4,
-                 attention_probs_dropout_prob=0.1,
-                 max_position_embeddings=1,
-                 type_vocab_size=2,
-                 initializer_range=0.02,
-                 graph=False,
-                 graph_hidden_size=75,
-                 graph_heads=4):
-        """Constructs BertConfig.
-        Args:
-            vocab_size_or_config_json_file: Vocabulary size of `inputs_ids` in `BertModel`.
-            hidden_size: Size of the encoder layers and the pooler layer.
-            num_hidden_layers: Number of hidden layers in the Transformer encoder.
-            num_attention_heads: Number of attention heads for each attention layer in
-                the Transformer encoder.
-            intermediate_size: The size of the "intermediate" (i.e., feed-forward)
-                layer in the Transformer encoder.
-            hidden_act: The non-linear activation function (function or string) in the
-                encoder and pooler. If string, "gelu", "relu" and "swish" are supported.
-            hidden_dropout_prob: The dropout probabilitiy for all fully connected
-                layers in the embeddings, encoder, and pooler.
-            attention_probs_dropout_prob: The dropout ratio for the attention
-                probabilities.
-            max_position_embeddings: The maximum sequence length that this model might
-                ever be used with. Typically set this to something large just in case
-                (e.g., 512 or 1024 or 2048).
-            type_vocab_size: The vocabulary size of the `token_type_ids` passed into
-                `BertModel`.
-            initializer_range: The sttdev of the truncated_normal_initializer for
-                initializing all weight matrices.
-        """
-        if isinstance(vocab_size, str):
-            with open(vocab_size, "r", encoding='utf-8') as reader:
-                json_config = json.loads(reader.read())
-            for key, value in json_config.items():
-                self.__dict__[key] = value
-        elif isinstance(vocab_size, int):
-            self.vocab_size = vocab_size
-            self.hidden_size = hidden_size
-            self.seg_vocab_size = seg_vocab_size
-            self.age_vocab_size = age_vocab_size
-            self.gender_vocab_size = gender_vocab_size
-            self.num_hidden_layers = num_hidden_layers
-            self.num_attention_heads = num_attention_heads
-            self.hidden_act = hidden_act
-            self.intermediate_size = intermediate_size
-            self.hidden_dropout_prob = hidden_dropout_prob
-            self.attention_probs_dropout_prob = attention_probs_dropout_prob
-            self.max_position_embeddings = max_position_embeddings
-            self.type_vocab_size = type_vocab_size
-            self.initializer_range = initializer_range
-            self.graph = graph
-            self.graph_hidden_size = graph_hidden_size
-            self.graph_heads = graph_heads
-        else:
-            raise ValueError("First argument must be either a vocabulary size (int)"
-                             "or the path to a pretrained model config file (str)")
-
-    @classmethod
-    def from_dict(cls, json_object):
-        """Constructs a `BertConfig` from a Python dictionary of parameters."""
-        config = BertConfig(vocab_size_or_config_json_file=-1)
-        for key, value in json_object.items():
-            config.__dict__[key] = value
-        return config
-
-    @classmethod
-    def from_json_file(cls, json_file):
-        """Constructs a `BertConfig` from a json file of parameters."""
-        with open(json_file, "r", encoding='utf-8') as reader:
-            text = reader.read()
-        return cls.from_dict(json.loads(text))
-
-    def __repr__(self):
-        return str(self.to_json_string())
-
-    def to_dict(self):
-        """Serializes this instance to a Python dictionary."""
-        output = copy.deepcopy(self.__dict__)
-        return output
-
-    def to_json_string(self):
-        """Serializes this instance to a JSON string."""
-        return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
+        
+class TrainConfig(object):
+    def __init__(self, config):
+        self.batch_size = config.get('batch_size')
+        self.use_cuda = config.get('use_cuda')
+        self.max_len_seq = config.get('max_len_seq')
+        self.train_loader_workers = config.get('train_loader_workers')
+        self.test_loader_workers = config.get('test_loader_workers')
+        self.device = config.get('device')
+        self.output_dir = config.get('output_dir')
+        self.output_name = config.get('output_name')
+        self.best_name = config.get('best_name')

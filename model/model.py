@@ -1,58 +1,13 @@
 #from distutils.command.config import config
 #from modules import *
 
-'''
-class BERT(nn.Module):
-    def __init__(self, config):
-        super(BERT, self).__init__()
-        d_s = config['d_model']
-        nlayers = config['n_layers']
-                         
-        self.embedding = BertEmbeddings(config=config)
-        self.layers = nn.ModuleList([BertEncoder(config=config) for _ in range(nlayers)])
-        self.fc = nn.Linear(d_s, d_s)
-        self.activ1 = nn.Tanh()
-        self.linear = nn.Linear(d_s, d_s)
-        self.activ2 = gelu
-        self.norm = nn.LayerNorm(d_s)
-        self.classifier = nn.Linear(d_s, 2)
-        
-        # decoder is shared with embedding layer
-        
-        embed_weight = self.embedding.tok_embed.weight
-        n_vocab, n_dim = embed_weight.size()
-        self.decoder = nn.Linear(n_dim, n_vocab, bias=False)
-        self.decoder.weight = embed_weight
-        self.decoder_bias = nn.Parameter(torch.zeros(n_vocab))
-
-    def forward(self, input_ids, segment_ids, masked_pos):
-        output = self.embedding(input_ids, segment_ids)
-        enc_self_attn_mask = get_attn_pad_mask(input_ids, input_ids)
-        for layer in self.layers:
-            output, enc_self_attn = layer(output, enc_self_attn_mask)
-        # output : [batch_size, len, d_model], attn : [batch_size, n_heads, d_mode, d_model]
-        # it will be decided by first token(CLS)
-        h_pooled = self.activ1(self.fc(output[:, 0])) # [batch_size, d_model]
-        logits_clsf = self.classifier(h_pooled) # [batch_size, 2]
-
-        masked_pos = masked_pos[:, :, None].expand(-1, -1, output.size(-1)) # [batch_size, max_pred, d_model]
-
-        # get masked position from final output of transformer.
-        h_masked = torch.gather(output, 1, masked_pos) # masking position [batch_size, max_pred, d_model]
-        h_masked = self.norm(self.activ2(self.linear(h_masked)))
-        logits_lm = self.decoder(h_masked) + self.decoder_bias # [batch_size, max_pred, n_vocab]
- 
-        return logits_lm, logits_clsf
-
-'''
-# For MLM
-#import pytorch_pretrained_bert as Bert
 
 import torch
 import torch.nn as nn
 import numpy as np
 import math as math
 from utils.config import BertConfig
+import pytorch_pretrained_bert as Bert
 
             
 def gelu(x):
@@ -72,7 +27,99 @@ ACT2FN = {"gelu": gelu, "relu": torch.nn.functional.relu, "swish": swish}
 
 
 
+
+"""
+    How to implement the conditional part? 
+    It will be a matrix with shape (batch_size, num_heads, max_codesy, maxcodesx), here maxcodesx = maxcodesy, 
+    the attention mask will be
+    
+    
+    
+    
+"""
+
+def create_matrix_dm(input_ids, mask, prior_val, prior_indicies, use_prior, use_inf_mask):
+   # dx_ids, proc_ids, guide, prior_guide = x # Ids (int) for codes
+    
+    batch_size = input_ids.shape[0]
+   # num_dx_ids = num_dx_ids = max_num_codes if use_prior else dx_ids.dense_shape[-1]
+   # num_proc_ids = max_num_codes if use_prior else proc_ids.dense_shape[-1]
+   # num_codes = 1 + num_dx_ids + num_proc_ids
+
+    if use_prior:
+
+        """
+
+            This is the conditional probability mask containing the conditional probabilites between diagnose and treatment codes. 
+            This will have the shape : (batch_size, num_heads, max_codesy, max_codesx) where max_codesy=maxcodesx
+
+        """
+        print('input_ids')
+        print(input_ids[0, :])
         
+        print('prior_values shape')
+        print(prior_val.shape)
+        print('prior_values')
+        print(prior_val[0, :])
+    
+        print('prior_ind')
+        print(prior_indicies[0, :])
+        
+        # [batchsize, numbheads, lengthinputids, lengthinputids]
+        
+        '''
+        input_length = 10 tokens
+        
+        The output entries in the attention-matrix should be input_length*input_length
+        
+        [[P(d1|d1), P(d1|d2), P(d1|t1)],
+         [P(d2|d1), P(d2|d2), P(d2|t1)],
+         [P(t1|d1), P(t1|d2), P(t1|t1)],]
+         
+         
+        '''
+        
+        
+        
+        
+        '''
+        prior_values = prior_val
+        prior_idxs = prior_values.values
+        prior_batch_idx = prio_idxs.indices[:, 0][::2] # ?
+        prior_idx = torch.reshape(prior_indices.values, [-1, 2]) #? 
+        prior_idx = torch.cat(
+            [prior_batch_idx[:, None], prior_idx[:, :1], prior_idx[:, 1:]], axis=1) # ?
+
+        temp_idx = (
+            prior_idx[:, 0] * 1000000 + prior_idx[:, 1] * 1000 + prior_idx[:, 2])
+        sorted_idx = torch.argsort(temp_idx)
+        prior_idx = torch.gather(prior_idx, sorted_idx)
+
+        prior_idx_shape = [batch_size, max_num_codes * 3, max_num_codes * 3]
+        sparse_prior = torch.Sparse(
+            indices=prior_idx, values=prior_idx_values, dense_shape=prior_idx_shape)
+        prior_guide = sparse_prior.to_dense()#.sparse.to_dense(sparse_prior, validate_indices=True)
+
+        visit_guide = torch.tensor( #tf.convert_to_tensor(
+            [prior_scalar] * max_num_codes + [0.0] * max_num_codes * 2,
+            dtype=torch.float32)
+        prior_guide = torch.cat(
+            [torch.tile(visit_guide[None, None, :], [batch_size, 1, 1]), prior_guide],
+            axis=1)
+        visit_guide = torch.cat([[0.0], visit_guide], axis=0)
+        prior_guide = torch.cat(
+            [torch.tile(visit_guide[None, :, None], [batch_size, 1, 1]), prior_guide],
+            axis=2)
+        prior_guide = (
+            prior_guide * mask[:, :, None] * mask[:, None, :] +
+            prior_scalar * torch.eye(num_codes)[None, :, :])
+        degrees = torch.reduce_sum(prior_guide, axis=2)
+        prior_guide = prior_guide / degrees[:, :, None]
+        '''
+    mask, prior_guide = None, None
+    return mask, prior_guide
+
+
 class BertLayerNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-12):
         """Construct a layernorm module in the TF style (epsilon inside the square root).
@@ -123,11 +170,9 @@ class BertEmbeddings(nn.Module):
         self.segment_embeddings = nn.Embedding(config.seg_vocab_size, config.hidden_size)
         self.age_embeddings = nn.Embedding(config.age_vocab_size, config.hidden_size)
         self.gender_embeddings = nn.Embedding(config.gender_vocab_size, config.hidden_size)
-        self.posi_embeddings = PositionalEmbedding(config.hidden_size, max_len=config.hidden_size)
+        #self.posi_embeddings = PositionalEmbedding(config.hidden_size, max_len=config.hidden_size)
         
-        
-        #self.posi_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size). \
-         #   from_pretrained(embeddings=self._init_posi_embedding(config.max_position_embeddings, config.hidden_size))
+        self.posi_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size).from_pretrained(embeddings=self._init_posi_embedding(config.max_position_embeddings, config.hidden_size))
 
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -250,7 +295,6 @@ class BertSelfOutput(nn.Module):
 class BertAttention(nn.Module):
     def __init__(self, config):
         super(BertAttention, self).__init__()
-        #print("going into bert selfatterntion")
         self.self = BertSelfAttention(config)
         self.output = BertSelfOutput(config)
 
@@ -288,18 +332,27 @@ class BertOutput(nn.Module):
     
     
 class BertLayer(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, layer_idx, use_prior):
         super(BertLayer, self).__init__()
-        #print("Inside BertLayer")
-       # print("going to attention")
-        self.attention = BertAttention(config)
-       # print("bertintermediate")
+        
+        self.attention = BertAttention(config)    
+        self.layer_idx = layer_idx
+        self.use_prior = use_prior
         self.intermediate = BertIntermediate(config)
-       # print("Bert output")
         self.output = BertOutput(config)
-
-    def forward(self, hidden_states, attention_mask):
-        attention_output = self.attention(hidden_states, attention_mask)
+        
+    def forward(self, hidden_states, prior_val, prior_indicies, input_ids, attention_mask):
+        
+        if ((self.use_prior) and (self.layer_idx == 0)):
+            #print("Input")
+            #print(input_ids)
+            #input_ids, mask, prior_val, prior_indicies, use_prior, use_inf_mask
+            guide, prior = create_matrix_dm(input_ids, attention_mask, prior_val, prior_indicies, True, True)
+        else:
+            attention_output = self.attention(hidden_states, attention_mask)
+        #print("Attention output")
+        #print(attention_output[0, :])
+        
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output
@@ -308,14 +361,13 @@ class BertLayer(nn.Module):
 class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
-        #print("Inside Bert Encoder")
-        #layer = BertLayer(config=config)
-        self.layer = nn.ModuleList([BertLayer(config=config) for _ in range(config.num_hidden_layers)])    
-
-    def forward(self, hidden_states, attention_mask, output_all_encoded_layers=True):
+        self.layer = nn.ModuleList([BertLayer(config=config, layer_idx=layer_idx, use_prior=False) for layer_idx in range(config.num_hidden_layers)])    
+        
+    def forward(self, hidden_states, attention_mask, prior_val, prior_indicies, input_ids, output_all_encoded_layers=True):
         all_encoder_layers = []
         for layer_module in self.layer:
-            hidden_states = layer_module(hidden_states, attention_mask)
+            
+            hidden_states = layer_module(hidden_states, prior_val, prior_indicies, input_ids, attention_mask)
             if output_all_encoded_layers:
                 all_encoder_layers.append(hidden_states)
         if not output_all_encoded_layers:
@@ -456,15 +508,12 @@ class PreTrainedBertModel(nn.Module):
 class BertModel(PreTrainedBertModel):#Bert.modeling.BertPreTrainedModel):
     def __init__(self, config):
         super(BertModel, self).__init__(config)
-       # print("Inside BertModel", config)
-        #print("Going into BertEmbeddings")
         self.embeddings = BertEmbeddings(config=config)
-        #print("Going into Encoder")
-        self.encoder = BertEncoder(config=config) #Bert.modeling.BertEncoder(config=config)
-        self.pooler = BertPooler(config=config)  #Bert.modeling.BertPooler(config)
+        self.encoder = BertEncoder(config=config)
+        self.pooler = BertPooler(config=config)  
         self.apply(self.init_bert_weights)
-
-    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None,
+    
+    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, prior_val=None, prior_indicies=None, attention_mask=None,
                 output_all_encoded_layers=True):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
@@ -491,20 +540,19 @@ class BertModel(PreTrainedBertModel):#Bert.modeling.BertPreTrainedModel):
         # effectively the same as removing these entirely.
         extended_attention_mask = extended_attention_mask.to(dtype=next(self.parameters()).dtype)  # fp16 compatibility
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+        
+        ## Here we will create our attention mask, which will be the connections we want to attend, for now we attend all connections (except PAD tokens).
+        #print(attention_mask)
+        #print(extended_attention_mask)
 
         embedding_output = self.embeddings(input_ids, age_ids, gender_ids, seg_ids, posi_ids)
-        encoded_layers = self.encoder(embedding_output,
-                                      extended_attention_mask,
-                                      output_all_encoded_layers=output_all_encoded_layers)
+        encoded_layers = self.encoder(embedding_output,extended_attention_mask,prior_val, prior_indicies,input_ids, output_all_encoded_layers=output_all_encoded_layers)
         sequence_output = encoded_layers[-1]
         pooled_output = self.pooler(sequence_output)
         if not output_all_encoded_layers:
             encoded_layers = encoded_layers[-1]
         return encoded_layers, pooled_output
 
-"""
-MLM
-"""
 
 
 class BertPredictionHeadTransform(nn.Module):
@@ -540,7 +588,8 @@ class BertLMPredictionHead(nn.Module):
         hidden_states = self.decoder(hidden_states) + self.bias
         return hidden_states
 
-    
+
+
 class BertOnlyMLMHead(nn.Module):
     def __init__(self, config, bert_model_embedding_weights):
         super(BertOnlyMLMHead, self).__init__()
@@ -550,20 +599,16 @@ class BertOnlyMLMHead(nn.Module):
         prediction_scores = self.predictions(sequence_output)
         return prediction_scores
     
-    
 class BertForMaskedLM(PreTrainedBertModel):
     def __init__(self, config):
         super(BertForMaskedLM, self).__init__(config)
-       # print("Inside Bert MLM")
-       # print("Going into Bert model")
-        #print(config)
         self.bert = BertModel(config)
         #print("Going into BertonlyMLMHead")
         self.cls = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None):
-        sequence_output, _ = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask,
+    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None, prior_val=None, prior_indicies=None):
+        sequence_output, _ = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, prior_val, prior_indicies, attention_mask,
                                        output_all_encoded_layers=False)
         
         prediction_scores = self.cls(sequence_output)
