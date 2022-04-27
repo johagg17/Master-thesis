@@ -170,7 +170,7 @@ Trainer for MLM
 class TrainerMLM(pl.LightningModule):
     ''' LightningModule for training the model using MLM. '''
     
-    def __init__(self, model, optim, optim_param):
+    def __init__(self, model, optim, optim_param, reg_coef):
         '''
         Takes three parameters: 
             model - the model that should be trained
@@ -183,7 +183,8 @@ class TrainerMLM(pl.LightningModule):
         self.model = model
         self.opt = optim
         self.optim_param = optim_param
-    
+        self.reg_coef = reg_coef
+        
     def compute_acc(self, pred, label):
         '''Put comments here '''
         
@@ -207,11 +208,24 @@ class TrainerMLM(pl.LightningModule):
     def make_prediction(self, batch):
         age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide = batch
         
-        loss, pred, labels = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide)
+        loss, pred, labels, attentions = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide)
                 
         precision = self.compute_acc(pred, labels)
-        # Compute KL-Divergence loss
         
+        # Compute KL-Divergence loss
+        kl_terms = []
+        nattentions = len(attentions)
+        # attention shape: (batch size, seqlength, hiddendim)
+        epsilon = 1e-12
+        for i in range(1, nattentions):
+            log_p = torch.log(attentions[i-1] + epsilon)
+            log_q = torch.log(attentions[i] + epsilon)
+            kl_term = attentions[i-1] * (log_p - log_q)
+            kl_term = torch.sum(kl_term, axis=-1)
+            kl_term = torch.mean(kl_term)
+            kl_terms.append(kl_term)
+        reg_term =torch.mean(torch.stack(kl_terms), dim=0)
+        loss += self.reg_coef * reg_term
         
         return (loss, precision)
         
@@ -223,10 +237,7 @@ class TrainerMLM(pl.LightningModule):
     
     def training_step(self, batch, batch_idx):
         '''Put comments here '''
-        #print("batch")
-        #print(batch)
-        #sys.exit(0)
-        #print(batch_idx)
+       
         loss, precision = self.make_prediction(batch)
         
         self.log("Training loss", loss)
