@@ -38,87 +38,6 @@ ACT2FN = {"gelu": gelu, "relu": torch.nn.functional.relu, "swish": swish}
     
 """
 
-def create_matrix_dm(input_ids, mask, prior_val, prior_indicies, use_prior, use_inf_mask):
-   # dx_ids, proc_ids, guide, prior_guide = x # Ids (int) for codes
-    
-    batch_size = input_ids.shape[0]
-   # num_dx_ids = num_dx_ids = max_num_codes if use_prior else dx_ids.dense_shape[-1]
-   # num_proc_ids = max_num_codes if use_prior else proc_ids.dense_shape[-1]
-   # num_codes = 1 + num_dx_ids + num_proc_ids
-
-    if use_prior:
-
-        """
-
-            This is the conditional probability mask containing the conditional probabilites between diagnose and treatment codes. 
-            This will have the shape : (batch_size, num_heads, max_codesy, max_codesx) where max_codesy=maxcodesx
-
-        """
-        print('input_ids')
-        print(input_ids[0, :])
-        
-        print('prior_values shape')
-        print(prior_val.shape)
-        print('prior_values')
-        print(prior_val[0, :])
-    
-        print('prior_ind')
-        print(prior_indicies[0, :])
-        
-        # [batchsize, numbheads, lengthinputids, lengthinputids]
-        
-        '''
-        input_length = 10 tokens
-        
-        The output entries in the attention-matrix should be input_length*input_length
-        
-        [[P(d1|d1), P(d1|d2), P(d1|t1)],
-         [P(d2|d1), P(d2|d2), P(d2|t1)],
-         [P(t1|d1), P(t1|d2), P(t1|t1)],]
-         
-         
-        '''
-        
-        
-        
-        
-        '''
-        prior_values = prior_val
-        prior_idxs = prior_values.values
-        prior_batch_idx = prio_idxs.indices[:, 0][::2] # ?
-        prior_idx = torch.reshape(prior_indices.values, [-1, 2]) #? 
-        prior_idx = torch.cat(
-            [prior_batch_idx[:, None], prior_idx[:, :1], prior_idx[:, 1:]], axis=1) # ?
-
-        temp_idx = (
-            prior_idx[:, 0] * 1000000 + prior_idx[:, 1] * 1000 + prior_idx[:, 2])
-        sorted_idx = torch.argsort(temp_idx)
-        prior_idx = torch.gather(prior_idx, sorted_idx)
-
-        prior_idx_shape = [batch_size, max_num_codes * 3, max_num_codes * 3]
-        sparse_prior = torch.Sparse(
-            indices=prior_idx, values=prior_idx_values, dense_shape=prior_idx_shape)
-        prior_guide = sparse_prior.to_dense()#.sparse.to_dense(sparse_prior, validate_indices=True)
-
-        visit_guide = torch.tensor( #tf.convert_to_tensor(
-            [prior_scalar] * max_num_codes + [0.0] * max_num_codes * 2,
-            dtype=torch.float32)
-        prior_guide = torch.cat(
-            [torch.tile(visit_guide[None, None, :], [batch_size, 1, 1]), prior_guide],
-            axis=1)
-        visit_guide = torch.cat([[0.0], visit_guide], axis=0)
-        prior_guide = torch.cat(
-            [torch.tile(visit_guide[None, :, None], [batch_size, 1, 1]), prior_guide],
-            axis=2)
-        prior_guide = (
-            prior_guide * mask[:, :, None] * mask[:, None, :] +
-            prior_scalar * torch.eye(num_codes)[None, :, :])
-        degrees = torch.reduce_sum(prior_guide, axis=2)
-        prior_guide = prior_guide / degrees[:, :, None]
-        '''
-    mask, prior_guide = None, None
-    return mask, prior_guide
-
 
 class BertLayerNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-12):
@@ -226,7 +145,34 @@ class BertEmbeddings(nn.Module):
         return torch.from_numpy(lookup_table)
     
 
+class BertCustomAttention(nn.Module):
+    def __init__(self, config):
+        super(BertCustomAttention, self).__init__()
+        self.num_attention_heads = config.num_attention_heads
+        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
+        self.hidden_size = config.hidden_size
+        self.value = nn.Linear(config.hidden_size, self.all_head_size)
     
+    def transpose_for_scores(self, x):
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
+        x = x.view(*new_x_shape)
+        return x.permute(0, 2, 1, 3)
+    
+    def forward(self, hidden_states, attention_mask, prior_guide):
+        
+        batch_size, inputlength = prior_guide.shape[:2]
+        attention = torch.tile(prior_guide[:, None, :, :], [1, self.num_attention_heads, 1, 1])
+        v = self.value(hidden_states)
+        v = self.transpose_for_scores(v)
+        attention = attention + attention_mask
+        final_attention = torch.matmul(attention, v)
+        context_layer = final_attention.permute(0, 2, 1, 3).contiguous()
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
+        context_layer = context_layer.view(*new_context_layer_shape)    
+        return context_layer
+        
+        
 class BertSelfAttention(nn.Module):
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
@@ -253,11 +199,11 @@ class BertSelfAttention(nn.Module):
         mixed_query_layer = self.query(hidden_states)
         mixed_key_layer = self.key(hidden_states)
         mixed_value_layer = self.value(hidden_states)
-
+        
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
-
+        
         # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
@@ -276,6 +222,7 @@ class BertSelfAttention(nn.Module):
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
         return context_layer
+
 
 
 class BertSelfOutput(nn.Module):
@@ -332,27 +279,24 @@ class BertOutput(nn.Module):
     
     
 class BertLayer(nn.Module):
-    def __init__(self, config, layer_idx, use_prior):
+    def __init__(self, config, layer_idx):
         super(BertLayer, self).__init__()
         
+        self.customAttention = BertCustomAttention(config)
         self.attention = BertAttention(config)    
         self.layer_idx = layer_idx
-        self.use_prior = use_prior
+        self.use_prior = config.use_prior
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
         
-    def forward(self, hidden_states, prior_val, prior_indicies, input_ids, attention_mask):
+    def forward(self, hidden_states, attention_mask, prior_guide):
         
         if ((self.use_prior) and (self.layer_idx == 0)):
-            #print("Input")
-            #print(input_ids)
-            #input_ids, mask, prior_val, prior_indicies, use_prior, use_inf_mask
-            guide, prior = create_matrix_dm(input_ids, attention_mask, prior_val, prior_indicies, True, True)
+            attention_output = self.customAttention(hidden_states, attention_mask, prior_guide)
         else:
             attention_output = self.attention(hidden_states, attention_mask)
-        #print("Attention output")
-        #print(attention_output[0, :])
-        
+            
+        attention_output = self.attention(hidden_states, attention_mask)
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output
@@ -361,13 +305,13 @@ class BertLayer(nn.Module):
 class BertEncoder(nn.Module):
     def __init__(self, config):
         super(BertEncoder, self).__init__()
-        self.layer = nn.ModuleList([BertLayer(config=config, layer_idx=layer_idx, use_prior=False) for layer_idx in range(config.num_hidden_layers)])    
+        self.layer = nn.ModuleList([BertLayer(config=config, layer_idx=layer_idx) for layer_idx in range(config.num_hidden_layers)])    
         
-    def forward(self, hidden_states, attention_mask, prior_val, prior_indicies, input_ids, output_all_encoded_layers=True):
+    def forward(self, hidden_states, attention_mask, prior_guide, output_all_encoded_layers=True):
         all_encoder_layers = []
-        for layer_module in self.layer:
-            
-            hidden_states = layer_module(hidden_states, prior_val, prior_indicies, input_ids, attention_mask)
+        
+        for layer_module in self.layer:    
+            hidden_states = layer_module(hidden_states, attention_mask, prior_guide)
             if output_all_encoded_layers:
                 all_encoder_layers.append(hidden_states)
         if not output_all_encoded_layers:
@@ -513,7 +457,7 @@ class BertModel(PreTrainedBertModel):#Bert.modeling.BertPreTrainedModel):
         self.pooler = BertPooler(config=config)  
         self.apply(self.init_bert_weights)
     
-    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, prior_val=None, prior_indicies=None, attention_mask=None,
+    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, prior_guide=None,
                 output_all_encoded_layers=True):
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
@@ -546,7 +490,7 @@ class BertModel(PreTrainedBertModel):#Bert.modeling.BertPreTrainedModel):
         #print(extended_attention_mask)
 
         embedding_output = self.embeddings(input_ids, age_ids, gender_ids, seg_ids, posi_ids)
-        encoded_layers = self.encoder(embedding_output,extended_attention_mask,prior_val, prior_indicies,input_ids, output_all_encoded_layers=output_all_encoded_layers)
+        encoded_layers = self.encoder(embedding_output,extended_attention_mask, prior_guide, output_all_encoded_layers=output_all_encoded_layers)
         sequence_output = encoded_layers[-1]
         pooled_output = self.pooler(sequence_output)
         if not output_all_encoded_layers:
@@ -599,6 +543,7 @@ class BertOnlyMLMHead(nn.Module):
         prediction_scores = self.predictions(sequence_output)
         return prediction_scores
     
+    
 class BertForMaskedLM(PreTrainedBertModel):
     def __init__(self, config):
         super(BertForMaskedLM, self).__init__(config)
@@ -607,9 +552,8 @@ class BertForMaskedLM(PreTrainedBertModel):
         self.cls = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None, prior_val=None, prior_indicies=None):
-        sequence_output, _ = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, prior_val, prior_indicies, attention_mask,
-                                       output_all_encoded_layers=False)
+    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None, prior_guide=None):
+        sequence_output, _ = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, prior_guide=prior_guide, output_all_encoded_layers=False)
         
         prediction_scores = self.cls(sequence_output)
 

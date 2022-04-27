@@ -106,9 +106,28 @@ def random_mask(tokens, tokenizer, symbol='[MASK]'):
 
     return tokens, output_token, output_label
 
-
-
-
+def create_prior_guide(code_map, input_ids):
+    
+    '''
+    [d1, d2, m1], [d5, d6, m5]
+    
+    [d1:d1, d1:d2, d1:m1, d1:d5 ...]
+    
+    '''
+    prior_guide = []
+    for token1 in input_ids:
+        for token2 in input_ids:
+            comb = str(token1) + ',' + str(token2)
+            if ((token1=='[CLS]') or (token1=='[SEP]') or (token1=='[PAD]')) or ((token2=='[CLS]') or (token2=='[SEP]') or token2=='[PAD]'):
+                value = 1 
+            else:
+                if comb in code_map:
+                    value = code_map[comb]
+                else:
+                    value = 0
+            prior_guide.append(value)
+        
+    return prior_guide
 ## Dataset used for pretraining with MLM
 class EHRDataset(Dataset):
     def __init__(self, dataframe, max_len=64, tokenizer=None): # Should be changed 
@@ -127,7 +146,7 @@ class EHRDataset(Dataset):
             """
             Transforms the records from containing arrays into a dictionary: 
             patient_record = {patientid1: records, patientid2: records, ...}
-        
+         
             """
             
             patient_records = {}
@@ -136,8 +155,7 @@ class EHRDataset(Dataset):
                 patient_id, nradm, icd_codes, ndc_codes = row['subject_id'], len(list(row['hadm_id'])), list(row['diagnos_code']), list(row['medication_code'])
                 age, gender = list(row['age']), list(row['gender'])
                 admission_input, adm_age, adm_gender = [], [], []
-                prior_values, prior_indicies = list(row['prior_values']), list(row['prior_indicies']) # Should the visits be seperated ?? 
-                
+                prior_values, prior_indicies = np.array(list(row['prior_values'])), np.array(list(row['prior_indicies'])) # Should the visits be seperated ?? 
                 for i in range(nradm):
                     total_len = len(icd_codes[i]) +len(ndc_codes) + 1 # total tokenlength = nr_diagnose_codes + nr_medication_codes + SEP_token
                     admission_input.extend(icd_codes[i])
@@ -146,8 +164,16 @@ class EHRDataset(Dataset):
                       
                     adm_age.extend([str(int(age[i]))]*total_len)
                     adm_gender.extend(gender*total_len)
-                    
-                patient_records[patient_id] = [admission_input, adm_age, adm_gender, prior_values, prior_indicies]
+                
+                comb_map_prior_value = {}
+                
+                for prior_inds, prior_vals in zip(prior_indicies, prior_values):
+                    for idx, (prior_ind, prior_val) in enumerate(zip(prior_inds, prior_vals)):
+                        if prior_ind not in comb_map_prior_value:
+                            comb_map_prior_value[prior_ind] = 0
+                        comb_map_prior_value[prior_ind] = prior_val
+                                    
+                patient_records[patient_id] = [admission_input, adm_age, adm_gender, comb_map_prior_value]
                 
             return patient_records
         records = _transform_data(dataframe)    
@@ -175,36 +201,10 @@ class EHRDataset(Dataset):
         
         gender = record[2]
         
-        prior_values = record[3]
-        prior_indicies = record[4]
+        code_mapping = record[3]
         
         ## Cut sequence to the end of a visit
         codes = codes[(-self.max_len + 1):]
-        idxlastsep = len(codes) - codes[::-1].index('[SEP]')
-        codes = codes[:idxlastsep + 1]
-        age = age[:idxlastsep + 1]
-        gender = gender[:idxlastsep + 1]
-        numbervisits = codes.count('[SEP]')
-        
-        prior_values = prior_values[:numbervisits]
-        prior_indicies = prior_indicies[:numbervisits]
-        prior_val, prior_indi = [], []
-        for prior_values, prior_ind in zip(prior_values, prior_indicies):
-            prior_val.extend(prior_values), prior_val.extend(['[SEP]'])
-            prior_indi.extend(prior_ind), prior_indi.extend(['[SEP]'])
-        
-        voc = self.tokenizer.getVoc('code')
-        prior_val = [voc[p] if ((p=='[SEP]') or (p=='[PAD]')) else p for p in prior_val]
-        prior_in = []
-        for indi in prior_indi:
-            if indi not in ['[SEP]', '[PAD]']:
-                code1, code2 = indi.split(',')
-                prior_in.append(voc[code1])
-                prior_in.append(voc[code2])
-            else:
-                prior_in.append(voc[indi])
-                
-        prior_indicies = prior_in
         
         if codes[0] != '[SEP]': # If the first token does not equal SEP, do not overwrite the token, instead insert CLS at the start
             codes = np.append(np.array(['[CLS]']), codes) # Append cls at the start, 
@@ -217,10 +217,14 @@ class EHRDataset(Dataset):
         mask = np.ones(self.max_len)
         mask[len(codes):] = 0
         
+        for idx, tok in enumerate(codes):
+            value = 0 if ((tok=='[CLS]') or tok=='[SEP]') else 1
+            mask[idx] = value
         
+        prior_guide = create_prior_guide(code_mapping, seq_padding(codes, self.max_len))
+        prior_guide = np.array(prior_guide).reshape(self.max_len, -1)
         age = seq_padding(age, self.max_len) # Pad age 
         gender = seq_padding(gender, self.max_len) # Pad gender
-        
         
         tokens, code, label = random_mask(codes, self.tokenizer) # Generate random masking
         
@@ -231,19 +235,16 @@ class EHRDataset(Dataset):
         codes = seq_padding(code, self.max_len) # Pad codes
         label = seq_padding(label, self.max_len, symbol=-1) # Pad labels with -1 as symbol, -1 will be ignored by cross entropy loss later
         
+        #print(len(codes))
+        #print(len(prior_guide))
         
-        age_ids = [voc[a] if a=='[PAD]' else int(a) for a in age] #self.tokenizer.convert_tokens_to_ids(age, 'age') # Convert age to ids
+        #voc = self.tokenizer.getVoc('code')
+        age_ids = self.tokenizer.convert_tokens_to_ids(age, 'age') # Convert age to ids
         gender_ids = self.tokenizer.convert_tokens_to_ids(gender, 'gender') # Convert gender to ids
         code_ids = self.tokenizer.convert_tokens_to_ids(codes, 'code') # Convert codes to ids
         label = self.tokenizer.convert_tokens_to_ids(label, 'code') # Convert labels to ids    
-        
-       # if len(prior_val) > len(prior_indicies):
-        #    prior_indicies = seq_padding(prior_indicies, len(prior_val), symbol=-5)
-        #else:
-        #    prior_val = seq_padding(prior_val, len(prior_indicies), symbol=-5)
-            
-        test = [prior_val]    
-        return (torch.LongTensor(age_ids), torch.LongTensor(gender_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), torch.LongTensor(mask), torch.LongTensor(label)), (torch.LongTensor(test))
+                
+        return torch.LongTensor(age_ids), torch.LongTensor(gender_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), torch.LongTensor(mask), torch.LongTensor(label), torch.FloatTensor(prior_guide)
           
     def __len__(self):
         return len(self.dataframe)

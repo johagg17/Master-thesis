@@ -91,7 +91,7 @@ class EHRTokenizer(object):
         """Converts a sequence of ids in wordpiece tokens using the vocab."""
         tokens = []
         '''
-            This if-statements needs to be fixed, could be replaced with a dict instead
+            Thisprior_guide if-statements needs to be fixed, could be replaced with a dict instead
         '''
         if voc=='code':
             vocab=self.code_voc

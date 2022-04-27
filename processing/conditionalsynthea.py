@@ -46,23 +46,22 @@ class Patient(object):
         return infdict
     
 class EncounterInfo(object):#en visit
- 
-
-  def __init__(self, patient_id, encounter_id, visit_number, readmission, icd_code, ndc):
-    self.patient_id = str(patient_id)
-    self.encounter_id = str(encounter_id)
-    self.readmission = str(readmission)
-    self.rx_ids = []
-    self.dx_ids = icd_code
-    self.labs = {}
-    self.physicals = []
-    self.treatments = ndc
-    self.visit_number = visit_number
     
-  def __str__(self):
-    return ("patient_id:"+str(self.patient_id)+" visit number:"+str(self.visit_number)+" hadm_id:"+str(self.encounter_id)+"readmission:"+str(self.readmission))
+    def __init__(self, patient_id, encounter_id, visit_number, readmission, icd_code, ndc):
+        self.patient_id = str(patient_id)
+        self.encounter_id = str(encounter_id)
+        self.readmission = str(readmission)
+        self.rx_ids = []
+        self.dx_ids = icd_code
+        self.labs = {}
+        self.physicals = []
+        self.treatments = ndc
+        self.visit_number = visit_number
+    def __str__(self):
+        return ("patient_id:"+str(self.patient_id)+" visit number:"+str(self.visit_number)+" hadm_id:"+str(self.encounter_id)+"readmission:"+str(self.readmission))
 
 def process_patient(infile, encounter_dict, hour_threshold=24):
+    
     
   data = pd.read_parquet(infile)
   data['label'] = data['label'].apply(lambda x: np.append(x, False))
@@ -319,20 +318,21 @@ def count_conditional_prob_dp(seqex_list, output_path, train_key_set=None):
   pp_cond_probs = {}
     
   for dx1, dx_prob1 in dx_probs.items():
-    for dx2, dx_prob2 in dx_probs.items():
-        dd = dx1 + ',' + dx2
-        if dd in dd_probs:
-            dd_cond_probs[dd] = dd_probs[dp] / dx_prob1
-        else:
-            dd_cond_probs[dd] = 0.0
+        for dx2, dx_prob2 in dx_probs.items():
+            dd = dx1 + ',' + dx2
+            if dd in dd_probs:
+                dd_cond_probs[dd] = dd_probs[dp] / dx_prob1
+            else:
+                dd_cond_probs[dd] = 0.0
+            
             
    for proc1, proc_prob1 in proc_probs.items():
-    for proc2, proc_prob2 in proc_probs.items():
-        pp = proc1 + ',' + proc1
-        if pp in pp_probs:
-            pp_cond_probs[pp] = pp_probs[pp] / proc_prob1
-        else:
-            pp_cond_probs[dd] = 0.0
+        for proc2, proc_prob2 in proc_probs.items():
+            pp = proc1 + ',' + proc1
+            if pp in pp_probs:
+                pp_cond_probs[pp] = pp_probs[pp] / proc_prob1
+            else:
+                pp_cond_probs[dd] = 0.0
             
             
   dp_cond_probs = {}
@@ -379,6 +379,7 @@ def add_sparse_prior_guide_dp(seqex_list,
   # dd and pp cond probs
   dd_cond_probs = pickle.load(
       open(stats_path + '/dd_cond_probs.empirical.p', 'rb'))
+    
   pp_cond_probs = pickle.load(
       open(stats_path + '/pp_cond_probs.empirical.p', 'rb'))
 

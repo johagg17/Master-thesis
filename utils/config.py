@@ -18,6 +18,7 @@ class BertConfig(Bert.modeling.BertConfig):
         self.seg_vocab_size = config.get('seg_vocab_size')
         self.age_vocab_size = config.get('age_vocab_size')
         self.gender_vocab_size = config.get('gender_vocab_size')
+        self.use_prior = config.get('use_prior')
 
 
         

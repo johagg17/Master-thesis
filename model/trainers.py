@@ -205,20 +205,20 @@ class TrainerMLM(pl.LightningModule):
         return precision
     
     def make_prediction(self, batch):
-        age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_val, prior_indicies = batch
-        #print(input_ids)
-        loss, pred, labels = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels,
-                                          prior_val, prior_indicies)
+        age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide = batch
+        
+        loss, pred, labels = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide)
                 
         precision = self.compute_acc(pred, labels)
         # Compute KL-Divergence loss
         
+        
         return (loss, precision)
         
         
-    def forward(self, age_ids, gender_ids, input_ids, posi_ids, segment_ids, attMask, labels, prior_val, prior_indicies):
+    def forward(self, age_ids, gender_ids, input_ids, posi_ids, segment_ids, attMask, labels, prior_guide):
         '''Comment for function '''
-        return self.model(input_ids, age_ids=age_ids, gender_ids=gender_ids, seg_ids=segment_ids, posi_ids=posi_ids, attention_mask=attMask, labels=labels, prior_val=prior_val, prior_indicies=prior_indicies)
+        return self.model(input_ids, age_ids=age_ids, gender_ids=gender_ids, seg_ids=segment_ids, posi_ids=posi_ids, attention_mask=attMask, labels=labels, prior_guide=prior_guide)
     
     
     def training_step(self, batch, batch_idx):
