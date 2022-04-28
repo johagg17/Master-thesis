@@ -74,8 +74,6 @@ def process_patient(infile, encounter_dict, hour_threshold=24):
     nr_count = 0
     patient_dict = {}
     for rowindex, line in data.iterrows():
-        if count == 1000:
-            break
         if count % 10000 == 0:
             sys.stdout.write('%d\r' % count)
             sys.stdout.flush()
@@ -284,7 +282,7 @@ def count_conditional_prob_dp(seqex_list, output_path, train_key_set=None):
                     pp_freqs[pp] = 0
                 pp_freqs[pp] += 1
 
-    total_visit += 1
+        total_visit += 1
 
     dx_probs = dict([(k, v / float(total_visit)) for k, v in dx_freqs.items()
                   ])
@@ -447,11 +445,16 @@ def add_sparse_prior_guide_dp(seqex_list,stats_path,key_set=None,max_num_codes=5
     
 def create_patient_objects(seqex_list, path_to_data):
     patients = {}
+    print("create patient objects")
+    seqx = 0
     for seqex in seqex_list:
+        if seqx % 1000 == 0:
+            sys.stdout.write('seqx count: %d\r' % seqx)
+            sys.stdout.flush()
         
         pat_id, enc_id = str(seqex.context.feature['patientId'].bytes_list.value[0])[2:].split(':')
         indicies = [x.decode() for x in seqex.feature_lists.feature_list['prior_indices'].feature[0].bytes_list.value] 
-        values = [x for x in seqex.feature_lists.feature_list['prior_values'].feature[0].float_list.value] #list(map(list, seqex.feature_lists.feature_list['prior_values'].feature[0].float_list.value))
+        values = [x for x in seqex.feature_lists.feature_list['prior_values'].feature[0].float_list.value]
           
         if pat_id not in patients:
             patients[pat_id] = 0
@@ -462,15 +465,17 @@ def create_patient_objects(seqex_list, path_to_data):
         pat_temp.add_visit(enc_id, indicies, values)
         patients[pat_id] = pat_temp
         
+        seqx += 1
+    print("")
+    print("Saving to parquet")
+    #df = pd.DataFrame(columns=['subject_id', 'prior_values', 'prior_indicies'])
+    #patinfo = []
+    #for key, item in patients.items():
+     #   info = item.get_information()
+     #   patinfo.append(info)
     
-    df = pd.DataFrame(columns=['subject_id', 'prior_values', 'prior_indicies'])
-    patinfo = []
-    for key, item in patients.items():
-        info = item.get_information()
-        patinfo.append(info)
-    
-    df = df.append(patinfo, ignore_index=True)
-    df.to_parquet(path_to_data + '/prior_table')    
+    #df = df.append(patinfo, ignore_index=True)
+    #df.to_parquet(path_to_data + '/prior_table')    
         
     
 """Set <input_path> to where the raw eICU CSV files are located.
