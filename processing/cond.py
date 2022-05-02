@@ -113,6 +113,7 @@ def process_patient(infile, encounter_dict, hour_threshold=24):
     print("len after sampling",len(encounter_dict))
     print("total readmissions", r_count)
     print("total no readmissions", nr_count)
+    del data
     return encounter_dict
     
     
@@ -439,7 +440,8 @@ def add_sparse_prior_guide_dp(seqex_list,stats_path,key_set=None,max_num_codes=5
 
         new_seqex_list.append(seqex)
         total_visit += 1
-
+        
+    del seqex_list
     return new_seqex_list
     
     
@@ -459,23 +461,30 @@ def create_patient_objects(seqex_list, path_to_data):
         if pat_id not in patients:
             patients[pat_id] = 0
             pat_temp = Patient(patient_id=pat_id)
+            patients[pat_id] = pat_temp
         else:
             pat_temp = patients[pat_id]
             
         pat_temp.add_visit(enc_id, indicies, values)
-        patients[pat_id] = pat_temp
+        #patients[pat_id] = pat_temp
         
         seqx += 1
+        del pat_id
+        del enc_id
+        del indicies
+        del values
+        
+    del seqex_list
     print("")
     print("Saving to parquet")
-    #df = pd.DataFrame(columns=['subject_id', 'prior_values', 'prior_indicies'])
-    #patinfo = []
-    #for key, item in patients.items():
-     #   info = item.get_information()
-     #   patinfo.append(info)
+    df = pd.DataFrame(columns=['subject_id', 'prior_values', 'prior_indicies'])
+    patinfo = []
+    for key, item in patients.items():
+        info = item.get_information()
+        patinfo.append(info)
     
-    #df = df.append(patinfo, ignore_index=True)
-    #df.to_parquet(path_to_data + '/prior_table')    
+    df = df.append(patinfo, ignore_index=True)
+    df.to_parquet(path_to_data + '/prior_table_2')    
         
     
 """Set <input_path> to where the raw eICU CSV files are located.
@@ -487,19 +496,21 @@ def main(argv):
     output_path = argv[2]
     num_fold = 1
 
-    patient_file = input_path + '/readmission_data_synthea'
+    patient_file = input_path + '/readmission_data_synthea2'
  
     encounter_dict = {}
     print('Processing data')
     encounter_dict = process_patient(patient_file, encounter_dict, hour_threshold=24)
     key_list, seqex_list, dx_map, proc_map = build_seqex(encounter_dict, skip_duplicate=False, min_num_codes=1, max_num_codes=50)
-
-    pickle.dump(dx_map, open(output_path + '/dx_map.p', 'wb'), -1)
-    pickle.dump(proc_map, open(output_path + '/proc_map.p', 'wb'), -1)
+    
+    del encounter_dict
+    
+   # pickle.dump(dx_map, open(output_path + '/dx_map.p', 'wb'), -1)
+   # pickle.dump(proc_map, open(output_path + '/proc_map.p', 'wb'), -1)
 
     stats_path = output_path + '/train_stats'
     
-    count_conditional_prob_dp(seqex_list, stats_path)
+    #count_conditional_prob_dp(seqex_list, stats_path)
     train_seqex = add_sparse_prior_guide_dp(seqex_list, stats_path, max_num_codes=50)
     create_patient_objects(train_seqex, input_path) 
 
