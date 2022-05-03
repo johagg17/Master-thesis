@@ -205,6 +205,8 @@ class EHRDataset(Dataset):
         
         ## Cut sequence to the end of a visit
         codes = codes[(-self.max_len + 1):]
+        age = age[(-self.max_len + 1):]
+        gender = gender[(-self.max_len + 1):]
         
         if codes[0] != '[SEP]': # If the first token does not equal SEP, do not overwrite the token, instead insert CLS at the start
             codes = np.append(np.array(['[CLS]']), codes) # Append cls at the start, 
@@ -235,10 +237,6 @@ class EHRDataset(Dataset):
         codes = seq_padding(code, self.max_len) # Pad codes
         label = seq_padding(label, self.max_len, symbol=-1) # Pad labels with -1 as symbol, -1 will be ignored by cross entropy loss later
         
-        #print(len(codes))
-        #print(len(prior_guide))
-        
-        #voc = self.tokenizer.getVoc('code')
         age_ids = self.tokenizer.convert_tokens_to_ids(age, 'age') # Convert age to ids
         gender_ids = self.tokenizer.convert_tokens_to_ids(gender, 'gender') # Convert gender to ids
         code_ids = self.tokenizer.convert_tokens_to_ids(codes, 'code') # Convert codes to ids
@@ -253,42 +251,50 @@ class EHRDataset(Dataset):
     
 class EHRDatasetReadmission(Dataset):
     
-    def __init__(self, dataframe, max_len=64, tokenizer=None):
+    def __init__(self, dataframe, max_len=64, tokenizer=None, nvisits=2):
         
         self.data = dataframe
-        self.age = dataframe['age']
-        self.alchoholabuse = dataframe['alcohol_abuse']
-        self.tobbaco_abuse = dataframe['tobacco_abuse']
-        self.code = dataframe['icd_code']
-        self.gender = dataframe['gender']
         self.max_len = max_len
-        self.ids = dataframe.subject_id
         self.tokenizer = tokenizer
-        
-        #self.prediction_task = prediction_task
+        self.ids = dataframe.subject_id
+        self.nvisits = nvisits
         
         def _transform_data(data):
             patient_records = {} 
             for _, row in data.iterrows():
-                patient_id, nradm, icd_codes = row['subject_id'], len(list(row['hadm_id'])), list(row['ccsr'])
+                patient_id, nradm, icd_codes, ndc_codes = row['subject_id'], len(list(row['hadm_id'])), list(row['diagnos_code']), list(row['medication_code'])
                 age, gender = list(row['age']), list(row['gender'])
                 lab = list(row['label'])
+                prior_values, prior_indicies = np.array(list(row['prior_values'])), np.array(list(row['prior_indicies']))
                 admission_input, adm_age, adm_gender, labels = [], [], [], []
-                nvisits = 2
+                
+                nvisits = self.nvisits
+                #if nradm == 1:
+                 #   continue 
+                
                 if nradm < nvisits:
                     nvisits = nradm
                     
                 for i in range(nvisits):
-                    total_len = len(icd_codes[i]) + 1
-                    admission_input.extend(icd_codes[i]) 
+                    total_len = len(icd_codes[i]) +len(ndc_codes) + 1 # total tokenlength = nr_diagnose_codes + nr_medication_codes + SEP_token
+                    admission_input.extend(icd_codes[i])
+                    admission_input.extend(ndc_codes[i])
                     admission_input.extend(['[SEP]'])
-                    
+                      
                     adm_age.extend([str(int(age[i]))]*total_len)
                     adm_gender.extend(gender*total_len)
                     
-                labels = [lab[nvisits - 1]]
+                labels = [int(lab[nvisits - 1])]
+                
+                comb_map_prior_value = {}
+                
+                for prior_inds, prior_vals in zip(prior_indicies, prior_values):
+                    for idx, (prior_ind, prior_val) in enumerate(zip(prior_inds, prior_vals)):
+                        if prior_ind not in comb_map_prior_value:
+                            comb_map_prior_value[prior_ind] = 0
+                        comb_map_prior_value[prior_ind] = prior_val
                     
-                patient_records[int(patient_id)] = [admission_input, adm_age, adm_gender, labels]
+                patient_records[patient_id] = [admission_input, adm_age, adm_gender, labels, comb_map_prior_value]
                 
             return patient_records
         records = _transform_data(dataframe) 
@@ -296,16 +302,23 @@ class EHRDatasetReadmission(Dataset):
         
     def __getitem__(self, index):
         
-        patid = int(self.ids.iloc[index])
-        
+        patid = self.ids.iloc[index]
         record = self.patdata[patid]
+                
+        codes = record[0] # inputtokens
         
+        age = record[1] # ages over the admissions
         
-        codes, age, gender, labels = record        
+        gender = record[2]
+        
+        labels = record[3]
+        code_mapping = record[4]
+        
+        ## Cut sequence to the end of a visit
+        codes = codes[(-self.max_len + 1):]       
         
         age = age[(-self.max_len + 1):]
         gender = gender[(-self.max_len + 1):]
-        codes = codes[(-self.max_len + 1):]
         
         if codes[0] != '[SEP]': 
             codes = np.append(np.array(['[CLS]']), codes)
@@ -317,6 +330,13 @@ class EHRDatasetReadmission(Dataset):
         mask = np.ones(self.max_len)
         mask[len(codes):] = 0
         
+        for idx, tok in enumerate(codes):
+            value = 0 if ((tok=='[CLS]') or tok=='[SEP]') else 1
+            mask[idx] = value
+        
+        prior_guide = create_prior_guide(code_mapping, seq_padding(codes, self.max_len))
+        prior_guide = np.array(prior_guide).reshape(self.max_len, -1)
+        
         
         age = seq_padding(age, self.max_len)
         gender = seq_padding(gender, self.max_len)
@@ -327,17 +347,13 @@ class EHRDatasetReadmission(Dataset):
         position = position_idx(tokens)
         segment = index_seq(tokens)
         
-        
         codes = seq_padding(codes, self.max_len)
         
         age_ids = self.tokenizer.convert_tokens_to_ids(age, 'age')
         gender_ids = self.tokenizer.convert_tokens_to_ids(gender, 'gender')
         code_ids = self.tokenizer.convert_tokens_to_ids(codes, 'code')
-        
-        #if self.prediction_task!='readmission':
-        #    label = self.tokenizer.convert_tokens_to_ids(label, 'label')
             
-        return torch.LongTensor(age_ids), torch.LongTensor(gender_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), torch.LongTensor(mask), torch.LongTensor(label), torch.LongTensor([int(patid)])
+        return torch.LongTensor(age_ids), torch.LongTensor(gender_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), torch.LongTensor(mask), torch.LongTensor(label), torch.FloatTensor(prior_guide)
         
     def __len__(self):
         return len(self.data)

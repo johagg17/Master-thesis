@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 def write_age_to_file(age_list, file_path) -> None:
     """ Function to write age vocabulary file """
@@ -31,3 +32,16 @@ def write_codes_to_file(code_list, file_path) -> None:
     all_codes = np.array(all_codes)
     np.save(file_path, all_codes)
     
+    
+    
+def load_model(path, model):
+    # load pretrained model and update weights
+    pretrained_dict = torch.load(path)
+    model_dict = model.state_dict()
+    # 1. filter out unnecessary keys
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+    # 2. overwrite entries in the existing state dict
+    model_dict.update(pretrained_dict)
+    # 3. load the new state dict
+    model.load_state_dict(model_dict)
+    return model

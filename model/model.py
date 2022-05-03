@@ -571,13 +571,16 @@ class BertSinglePrediction(PreTrainedBertModel):
         self.bert = BertModel(config)
         self.drop = nn.Dropout(config.hidden_dropout_prob)
         
+        for param in self.bert.parameters(): ## Freeze BERT layers
+            param.requires_grad = False
+            
         self.classifier = nn.Linear(config.hidden_size, num_labels)
         
         self.apply(self.init_bert_weights)
         
         
-    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None):
-        _, poolout = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, output_all_encoded_layers=False)
+    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None, prior_guide=None):
+        _, poolout, all_attention_outputs = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, prior_guide=prior_guide, output_all_encoded_layers=False)
         
         output = self.drop(poolout)
         
@@ -588,7 +591,7 @@ class BertSinglePrediction(PreTrainedBertModel):
             output = nn.Sigmoid()(output)
             labels = labels[labels != -1]
             loss = nn.BCELoss()(output.view(-1, self.num_labels), labels.float().view(-1, self.num_labels))
-            return loss, output, labels
+            return loss, output, labels, all_attention_outputs
         else:
             return output
         
@@ -601,6 +604,9 @@ class BertMultiLabelPrediction(PreTrainedBertModel):
         self.num_labels = num_labels
         self.bert = BertModel(config)
         self.drop = nn.Dropout(config.hidden_dropout_prob)
+        
+        for param in self.bert.parameters(): ## Freeze BERT layers
+            param.requires_grad = False
         
         self.classifier = nn.Linear(config.hidden_size, num_labels)
         
