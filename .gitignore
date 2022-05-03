@@ -101,3 +101,8 @@ logs
 # Python
 .ipynb_checkpoints
 __pycache__
+
+# Folders
+data/
+saved_models/
+logs/

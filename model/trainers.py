@@ -22,19 +22,20 @@ class TrainerBinaryPrediction(pl.LightningModule):
     
     def __init__(self, model, optim, optim_param):
         '''Put comments here '''
+        super(TrainerBinaryPrediction, self).__init__()
         self.model = model
         self.optim = optim
         self.optim_param = optim_param
         
-    def forward(self, age_ids, gender_ids, input_ids, posi_ids, segment_ids, attMask, labels):
+    def forward(self, age_ids, gender_ids, input_ids, posi_ids, segment_ids, attMask, labels, prior_guide):
         '''Put comments here '''
-        return self.model(input_ids, age_ids=age_ids, gender_ids=gender_ids, seg_ids=segment_ids, posi_ids=posi_ids, attention_mask=attMask, labels=labels) 
+        return self.model(input_ids, age_ids=age_ids, gender_ids=gender_ids, seg_ids=segment_ids, posi_ids=posi_ids, attention_mask=attMask, labels=labels, prior_guide=prior_guide) 
 
     def make_prediction(self, batch):
         '''Put comments here'''
         
-        age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, _ = batch
-        loss, pred, labels = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels)
+        age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide = batch
+        loss, pred, labels, _ = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide)
         
         pred = pred.detach().cpu()
         labels =labels.cpu().type(torch.int32)
@@ -55,9 +56,9 @@ class TrainerBinaryPrediction(pl.LightningModule):
         self.log("Training loss", traingloss)
         self.log("Training f1-score", trainf1score)
         self.log("Training AUC", trainaucscore)
-        self.log("Training AUCPR", aucprecision)
+        self.log("Training AUCPR", trainaucprecision)
         
-        return {'Training loss': traingloss, 'Training f1-score': trainf1score, 'Training AUC': trainaucscore, 'Training AUCPR': trainaucprecision} 
+        return {'loss': traingloss, 'f1-score': trainf1score, 'AUC': trainaucscore, 'AUCPR': trainaucprecision} 
     
     def validation_step(self, batch, batch_idx):
         valloss, valf1score, valaucscore, valaucprecision = self.make_prediction(batch)
@@ -67,7 +68,7 @@ class TrainerBinaryPrediction(pl.LightningModule):
         self.log("Validation AUC", valaucscore)
         self.log("Validation AUCPR", valaucprecision)
         
-        return {'Validation loss': valloss, 'Validation f1-score': valf1score, 'Validation AUC': valaucscore, 'Validation AUCPR': valaucprecision} 
+        return {'loss': valloss, 'f1-score': valf1score, 'AUC': valaucscore, 'AUCPR': valaucprecision} 
     
     def test_step(self, batch, batch_idx):
         testloss, testf1score, testaucscore, testaucprecision = self.make_prediction(batch)
@@ -77,12 +78,18 @@ class TrainerBinaryPrediction(pl.LightningModule):
         self.log("Test AUC", testaucscore)
         self.log("Test AUCPR", testaucprecision)
         
-        return {'Test loss': valloss, 'Test f1-score': valf1score, 'Test AUC': valaucscore, 'Test AUCPR': valaucprecision} 
+        return {'loss': valloss, 'f1-score': valf1score, 'AUC': valaucscore, 'AUCPR': valaucprecision} 
     
     def predict_step(self, batch, batch_idx):
         loss, f1score, aucscore, aucprecision = self.make_prediction(batch)
         
-        return {'loss': loss, 'f1-score': f1score, 'AUC': aucscore, 'AUCPR': aucprecision} 
+        return {'loss': loss, 'f1-score': f1score, 'AUC': aucscore, 'AUCPR': aucprecision}
+    
+    def configure_optimizers(self):
+        """Put comments here"""
+        # Note: dont use list if only one item.. Causes silent crashes
+        #optimizer = torch.optim.Adam(self.model.parameters())
+        return self.optim
         
     
     
