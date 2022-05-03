@@ -107,15 +107,13 @@ class TrainerCodes(pl.LightningModule):
         self.optim_param = optim_param
         self.mlb = binarizer
         
-    
-    def forward(self, age_ids, gender_ids, input_ids, posi_ids, segment_ids, attMask, labels):
+    def forward(self, age_ids, gender_ids, input_ids, posi_ids, segment_ids, attMask, labels, prior_guide):
         '''Put comments here'''
-        return self.model(input_ids, age_ids=age_ids, gender_ids=gender_ids, seg_ids=segment_ids, posi_ids=posi_ids, attention_mask=attMask, labels=labels)
-    
+        return self.model(input_ids, age_ids=age_ids, gender_ids=gender_ids, seg_ids=segment_ids, posi_ids=posi_ids, attention_mask=attMask, prior_guide=prior_guide, labels=labels)
     
     def make_predictions(self, batch):
         '''Put comments here'''
-        age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, _ = batch
+        age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide = batch
         
         labels = torch.tensor(self.mlb.transform(labels.cpu().numpy()), dtype=torch.float32).cuda()
         loss, pred, labels = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels)
@@ -127,7 +125,7 @@ class TrainerCodes(pl.LightningModule):
         aucpr = average_precision_score(labels, output, average='weighted')
         roc = skm.roc_auc_score(labels,output, average='samples')
                 
-        return (loss, roc, aucpr) #{'loss': loss, 'Training AUC': roc, 'Training AUCPR':aucpr} 
+        return (loss, roc, aucpr)
     
     def training_step(self, batch, batch_idx):
         '''Put comments here'''

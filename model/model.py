@@ -614,7 +614,7 @@ class BertMultiLabelPrediction(PreTrainedBertModel):
         
         
     def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None):
-        _, poolout = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, output_all_encoded_layers=False)
+        _, poolout, _ = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, prior_guide=prior_guide, output_all_encoded_layers=False)
         
         output = self.drop(poolout)
         
