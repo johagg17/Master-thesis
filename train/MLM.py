@@ -23,22 +23,22 @@ train_params = {
 
 def write_voc(data, path):
     
-    # Write only diagnose codes
-    diag_codes = np.concatenate(data['diagnos_code'].tolist(), axis=0)
-    #print("Hej1")
+    dcodes = np.concatenate(data['diagnos_code'].tolist(), axis=0)
+    diag_codes = np.concatenate(dcodes, axis=0)
+    
     if not os.path.isfile(path + 'MLM_diagnoscodes.npy'):
         print("Creating vocabulary for diagnose_codes")
         np.save(path + 'MLM_diagnoscodes.npy', diag_codes)
         
     # Write with medication codes
-    med_codes = np.concatenate(data['medication_code'].tolist(), axis=0)
+    med_codes = np.concatenate(np.concatenate(data['medication_code'].tolist(), axis=0), axis=0)
     diag_codes = np.append(diag_codes, med_codes)
     if not os.path.isfile(path + 'MLM_diagnosmedcodes.npy'):
         print("Creating vocabulary for diagnose and medication codes")
         np.save(path + 'MLM_diagnosmedcodes.npy', diag_codes)
     
     # Write with procedure codes
-    proc_codes = np.concatenate(data['procedure_code'].tolist(), axis=0)
+    proc_codes = np.concatenate(np.concatenate(data['procedure_code'].tolist(), axis=0), axis=0)
     diag_codes = np.append(diag_codes, proc_codes)
     
     if not os.path.isfile(path + 'MLM_diagnosproccodes.npy'):
@@ -50,11 +50,11 @@ def write_voc(data, path):
         print("Creating vocabulary for age")
         np.save(path + 'MLM_age.npy', ages)
         
-def load_data(type_of_data, data_name):
+def load_data(data_name):
     
     path='../data/datasets/' + data_name
     # Split the data if train, test, val does not exist
-    
+    #print(path)
     if not os.path.isfile(path + 'train.parquet'):
         raise Exception('train.parquet does not exist, try rerun the process of conditional.py')
     if not os.path.isfile(path + 'test.parquet'):
@@ -116,9 +116,28 @@ def train_test_model(config, PATH, trainloader, testloader, valloader, tensorboa
     
 def main():
     
+    dataset_name = 'Synthea/Small_cohorts/'
+    train, val, test = load_data(dataset_name)
     
-    files = {'code':'../data/vocabularies/Synthea/Small_cohorts/diagnosiscodes.npy',
-             'age':'../data/vocabularies/Synthea/Small_cohorts/age.npy'
+    feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
+    if (feature_types['diagnosis'] and feature_types['medications']):
+        print("Do only use diagnosis")
+        code_voc = 'MLM_diagnosmedcodes.npy'
+        age_voc = 'MLM_age.npy'
+        
+    elif (feature_types['diagnosis'] and not feature_types['medications']):
+        code_voc = 'MLM_diagnoscodes.npy'
+        age_voc = 'MLM_age.npy'
+        
+    else:
+        code_voc = 'MLM_diagnosmedproccodes.npy'
+        age_voc = 'MLM_age.npy'
+        
+   # print('../data/vocabularies/' + dataset_name + code_voc)    
+    #print(np.load('../data/vocabularies/' + dataset_name + code_voc, allow_pickle=True))
+    
+    files = {'code':'../data/vocabularies/' + dataset_name + code_voc,
+             'age':'../data/vocabularies/' + dataset_name + age_voc,
             }
     tokenizer = EHRTokenizer(task='MLM', filenames=files)
     
@@ -136,14 +155,14 @@ def main():
         'intermediate_size': 512, # the size of the "intermediate" layer in the transformer encoder
         'hidden_act': 'gelu', # The non-linear activation function in the encoder and the pooler "gelu", 'relu', 'swish' are supported
         'initializer_range': 0.02, # parameter weight initializer range
-        'use_prior':True,
-        'reg':50,
+        'use_prior':False,
+        'reg':0.5,
         'age':True,
         'gender':False,
-        'epochs':40,
+        'epochs':1,
     }
     
-    stats_path = '../data/datasets/synthea/Smaller_cohorts/train_stats/'
+    stats_path = '../data/datasets/Synthea/Small_cohorts/train_stats/'
     condfiles = {'dd':stats_path + 'dd_cond_probs.empirical.p', 
                  'dp':stats_path + 'dp_cond_probs.empirical.p',
                  'dm':stats_path + 'dm_cond_probs.empirical.p',
@@ -153,13 +172,11 @@ def main():
                  'mm':stats_path + 'mm_cond_probs.empirical.p', 
                  'md':stats_path + 'md_cond_probs.empirical.p',
                  'mp':stats_path + 'mp_cond_probs.empirical.p',
-                 
                 }
     
     feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
     num_gpus = 8
     folderpath = '../data/pytorch_datasets/Synthea/Small_cohorts/'
-    train, val, test = load_data('small')
     traind = EHRDataset(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_diagnosis')
     vald = EHRDataset(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_diagnosis')
     testd = EHRDataset(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_diagnosis')

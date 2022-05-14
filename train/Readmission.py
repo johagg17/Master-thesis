@@ -20,35 +20,16 @@ train_params = {
     'max_len_seq': global_params['max_seq_len'],
     'device': 'cuda' #change this to run on cuda #'cuda:0'
 }
-def write_voc(data, path):
+
+def fix_length(data, visit_label):
+    df = data.copy()
+    df['hadm_id'] = df['hadm_id'].apply(lambda x: x[:visit_label])
+    df['medication_code'] = df['medication_code'].apply(lambda x: x[:visit_label])
+    df['diagnos_code'] = df['diagnos_code'].apply(lambda x: x[:visit_label])
+    df['procedure_code'] = df['procedure_code'].apply(lambda x: x[:visit_label])
     
-    # Write only diagnose codes
-    diag_codes = np.concatenate(data['diagnos_code'].tolist(), axis=0)
-    #print("Hej1")
-    if not os.path.isfile(path + 'readmission_diagnoscodes.npy'):
-        print("Creating vocabulary for diagnose_codes")
-        np.save(path + 'readmission_diagnoscodes.npy', diag_codes)
-        
-    # Write with medication codes
-    med_codes = np.concatenate(data['medication_code'].tolist(), axis=0)
-    diag_codes = np.append(diag_codes, med_codes)
-    if not os.path.isfile(path + 'readmission_diagnosmedcodes.npy'):
-        print("Creating vocabulary for diagnose and medication codes")
-        np.save(path + 'readmission_diagnosmedcodes.npy', diag_codes)
-    
-    # Write with procedure codes
-    proc_codes = np.concatenate(data['procedure_code'].tolist(), axis=0)
-    diag_codes = np.append(diag_codes, proc_codes)
-    
-    if not os.path.isfile(path + 'readmission_diagnosproccodes.npy'):
-        print("Creating vocabulary for diagnose, medication and procedure codes")
-        np.save(path + 'readmission_diagnosproccodes.npy', diag_codes)
-    
-    ages = np.concatenate(data['age'].tolist(), axis=0)
-    if not os.path.isfile(path + 'readmission_age.npy'):
-        print("Creating vocabulary for age")
-        np.save(path + 'readmission_age.npy', ages)
-    
+    return df    
+
 def load_data(train_visits, data_name):
     
     path='../data/datasets/' + data_name
@@ -59,6 +40,7 @@ def load_data(train_visits, data_name):
         raise Exception('test.parquet does not exist, try rerun the process of conditional.py')
     if not os.path.isfile(path + 'val.parquet'):
         raise Exception('val.parquet does not exist, try rerun the process of conditional.py')
+        
     train = pd.read_parquet(path + 'train.parquet')
     val = pd.read_parquet(path + 'val.parquet')
     test = pd.read_parquet(path + 'test.parquet')
@@ -67,14 +49,13 @@ def load_data(train_visits, data_name):
     val = val[val['hadm_id'].map(len) >= train_visits]
     test = test[test['hadm_id'].map(len) >= train_visits]
     
-    train = train.apply(lambda x: x.str[:train_visits])
-    val = val.apply(lambda x: x.str[:train_visits])
-    test = test.apply(lambda x: x.str[:train_visits])
+    train = fix_length(train, train_visits)
+    val = fix_length(val, train_visits)
+    test = fix_length(test, train_visits)
     
     all_data = pd.concat([train, val, test])
     
     voc_path = '../data/vocabularies/' + data_name
-    write_voc(all_data, voc_path)
     return train, val, test
 
 
@@ -92,17 +73,61 @@ def train_test_model(config, tokenizer, trainloader, testloader, valloader, tens
             num_sanity_val_steps=10,
             precision=16,
         )
+    
+    conf = BertConfig(config)
+    model = BertSinglePrediction(conf, num_labels=1) 
+   # PATH = "../saved_models/MLM/model_with_prior_82test"
+    model = load_model(path_to_model, model)
+    params = list(model.named_parameters())
+    optim = adam(params, optim_param)
+    
+    patienttrajectory = TrainerBinaryPrediction(model, optim, optim_param)
+
+    print("Trainer is fitting")
+    trainer.fit(
+        patienttrajectory, 
+        train_dataloaders=trainloader,
+        val_dataloaders=valloader,
+    );
+    print("Predicting on test data")
+    predictions = trainer.predict(patienttrajectory, dataloaders=testloader)
+    
+    avg_f1 = sum([ stats['f1-score'] for stats in predictions ]) / len(predictions)
+    print("Avg_F1 {}".format( avg_f1*100))
+    
+    avg_auc = sum([ stats['AUC'] for stats in predictions ]) / len(predictions)
+    print("Avg_AUC {}".format(avg_auc*100))
+    
+    avg_aucpr = sum([ stats['AUCPR'] for stats in predictions ]) / len(predictions)
+    print("Avg_AUCPR".format(avg_aucpr*100))
+    
+    if save_model:
+        print("Saving model")
+        torch.save(model.state_dict(), PATH)
 
 def main():
     
     dataset_name = 'Synthea/Small_cohorts/'
+    readmissionvisit = 3
+    train, val, test = load_data(readmissionvisit, dataset_name)
     
-    train, val, test = load_data(3, dataset_name)
     
+    feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
+    if (feature_types['diagnosis'] and feature_types['medications']):
+        print("Do only use diagnosis")
+        code_voc = 'MLM_diagnosmedcodes.npy'
+        
+    elif (feature_types['diagnosis'] and not feature_types['medications']):
+        code_voc = 'MLM_diagnoscodes.npy'
+    else:
+        code_voc = 'MLM_diagnosmedproccodes.npy'
+        
+        
+    age_voc = 'MLM_age.npy'
     
-    files = {'code':'../data/vocabularies/Synthea/Small_cohorts/diagnosiscodes.npy',
-             'age':'../data/vocabularies/Synthea/Small_cohorts/age.npy'
-            }    
+    files = {'code':'../data/vocabularies/' + dataset_name + code_voc,
+             'age':'../data/vocabularies/' + dataset_name + age_voc
+            }
     
     tokenizer = EHRTokenizer(task='readmission', filenames=files)
     
@@ -127,19 +152,33 @@ def main():
         'epochs':20,
     }
     
-    '''
-    feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
+    stats_path = '../data/datasets/Synthea/Small_cohorts/train_stats/'
+    condfiles = {'dd':stats_path + 'dd_cond_probs.empirical.p', 
+                 'dp':stats_path + 'dp_cond_probs.empirical.p',
+                 'dm':stats_path + 'dm_cond_probs.empirical.p',
+                 'pp':stats_path + 'pp_cond_probs.empirical.p', 
+                 'pd':stats_path + 'pd_cond_probs.empirical.p',
+                 'pm':stats_path + 'pd_cond_probs.empirical.p',
+                 'mm':stats_path + 'mm_cond_probs.empirical.p', 
+                 'md':stats_path + 'md_cond_probs.empirical.p',
+                 'mp':stats_path + 'mp_cond_probs.empirical.p',
+                }
+    
     num_gpus = 8
-    folderpath = '../data/pytorch_datasets/Synthea/Small_cohorts'
-    traind = EHRDatasetReadmission(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_nextvisit')
-    vald = EHRDatasetReadmission(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_nextvisit')
-    testd = EHRDatasetReadmission(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_nextvisit')
+    folderpath = '../data/pytorch_datasets/Synthea/Small_cohorts/'
+    traind = EHRDatasetReadmission(train, nvisits=readmissionvisit, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_nextvisit')
+    vald = EHRDatasetReadmission(val, nvisits=readmissionvisit, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_nextvisit')
+    testd = EHRDatasetReadmission(test, nvisits=readmissionvisit, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_nextvisit')
+    
+    trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True,num_workers=4*num_gpus)
+    valloader = torch.utils.data.DataLoader(vald, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
+    testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     
     tensorboarddir = '../logs/'
-    PATH = "../saved_models/MLM/BEHRT_Small_cohort_synthea"
+    PATH = "../saved_models/MLM/CondBEHRT_small_cohorts_synthea"
     
-    train_test_model(model_config, tokenizer, traind, testd, vald, tensorboarddir, num_gpus, PATH, save_model=True)
-    '''
+    train_test_model(model_config, tokenizer, trainloader, testloader, valloader, tensorboarddir, num_gpus, PATH, save_model=False)
+    
     
 if __name__=='__main__':
     main()

@@ -25,41 +25,26 @@ def write_voc(data, path, visit_label):
     
     # Write only diagnose codes
     
+    label_codes = data['diagnos_code'].apply(lambda x: x[-1]).tolist()
     
-    label_codes = data['diagnos_code'].tolist()[-1]
-    diag_codes = data['diagnos_code'].tolist()[:-1]
+    label_codes = np.concatenate(label_codes, axis=0)
+    print("Labels")
+    print(label_codes)
+    #diag_codes = np.concatenate(diag_codes, axis=0)
     
-    diag_codes = np.concatenate(diag_codes, axis=0)
-    
-    print(diag_codes)
     if not os.path.isfile(path + 'Nextvisit_{}_labelcodes.npy'.format(visit_label)):
         print("Creating vocabulary for labels")
-        np.save(path + 'Nextvisit_{}_labelcodes.npy'.format(visit_label), diag_codes)
-        
-    if not os.path.isfile(path + 'Nextvisit_{}_diagnoscodes.npy'.format(visit_label)):
-        print("Creating vocabulary for diagnose_codes")
-        np.save(path + 'Nextvisit_{}_diagnoscodes.npy'.format(visit_label), diag_codes)
-        
-    # Write with medication codes
-    med_codes = np.concatenate(data['medication_code'].tolist(), axis=0)
-    diag_codes = np.append(diag_codes, med_codes)
-    if not os.path.isfile(path + 'Nextvisit_{}_diagnosmedcodes.npy'.format(visit_label)):
-        print("Creating vocabulary for diagnose and medication codes")
-        np.save(path + 'Nextvisit_{}_diagnosmedcodes.npy'.format(visit_label), diag_codes)
+        np.save(path + 'Nextvisit_{}_labelcodes.npy'.format(visit_label), label_codes)
+
+def fix_length(data, visit_label):
+    df = data.copy()
+    df['hadm_id'] = df['hadm_id'].apply(lambda x: x[:visit_label])
+    df['medication_code'] = df['medication_code'].apply(lambda x: x[:visit_label])
+    df['diagnos_code'] = df['diagnos_code'].apply(lambda x: x[:visit_label])
+    df['procedure_code'] = df['procedure_code'].apply(lambda x: x[:visit_label])
     
-    # Write with procedure codes
-    proc_codes = np.concatenate(data['procedure_code'].tolist(), axis=0)
-    diag_codes = np.append(diag_codes, proc_codes)
-    
-    if not os.path.isfile(path + 'Nextvisit_{}_diagnosproccodes.npy'.format(visit_label)):
-        print("Creating vocabulary for diagnose, medication and procedure codes")
-        np.save(path + 'Nextvisit_{}_diagnosproccodes.npy'.format(visit_label), diag_codes)
-    
-    ages = np.concatenate(data['age'].tolist(), axis=0)
-    if not os.path.isfile(path + 'Nextvisit_{}_age.npy'.format(visit_label)):
-        print("Creating vocabulary for age")
-        np.save(path + 'Nextvisit_{}_age.npy'.format(visit_label), ages)
-        
+    return df
+
 def load_data(data_name, visit_label):
     
     path='../data/datasets/' + data_name
@@ -80,10 +65,12 @@ def load_data(data_name, visit_label):
     val = val[val['hadm_id'].map(len) >= visit_label]
     test = test[test['hadm_id'].map(len) >= visit_label]
     
-    train = train.apply(lambda x: x.str[:visit_label])
-    val = val.apply(lambda x: x.str[:visit_label])
-    test = test.apply(lambda x: x.str[:visit_label])
+    train = fix_length(train, visit_label)
+    val = fix_length(val, visit_label)
+    test = fix_length(test, visit_label)
     
+   # print(train['diagnos_code'].iloc[0])
+    #print(train['hadm_id'].iloc[0])
     all_data = pd.concat([train, val, test])
     
     voc_path = '../data/vocabularies/' + data_name
@@ -132,6 +119,8 @@ def train_test_model(config, tokenizer, mlb, trainloader, testloader, valloader,
     if save_model:
         print("Saving model")
         torch.save(model.state_dict(), PATH)
+        
+        
 
 
 def main():
@@ -144,32 +133,29 @@ def main():
     feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
     if (feature_types['diagnosis'] and feature_types['medications']):
         print("Do only use diagnosis")
-        code_voc = 'Nextvisit_{}_diagnosmedcodes.npy'.format(labelvisit)
-        age_voc = 'Nextvisit_{}_age.npy'.format(labelvisit)
+        code_voc = 'MLM_diagnosmedcodes.npy'
         
     elif (feature_types['diagnosis'] and not feature_types['medications']):
-        code_voc = 'Nextvisit_{}_diagnoscodes.npy'.format(labelvisit)
-        age_voc = 'Nextvisit_{}_age.npy'.format(labelvisit)
-        
+        code_voc = 'MLM_diagnoscodes.npy'
     else:
-        code_voc = 'Nextvisit_{}_diagnosmedproccodes.npy'.format(labelvisit)
-        age_voc = 'Nextvisit_{}_age.npy'.format(labelvisit)
+        code_voc = 'MLM_diagnosmedproccodes.npy'
         
-    print('../data/vocabularies/' + dataset_name + code_voc)    
-    #print(np.load('../data/vocabularies/' + dataset_name + code_voc, allow_pickle=True))
+        
+    age_voc = 'MLM_age.npy'
     label_voc = 'Nextvisit_{}_labelcodes.npy'.format(labelvisit)
+    
     files = {'code':'../data/vocabularies/' + dataset_name + code_voc,
              'age':'../data/vocabularies/' + dataset_name + age_voc,
              'labels':'../data/vocabularies/' + dataset_name + label_voc,
             }
     
     
-    #tokenizer = EHRTokenizer(task='nextvisit', filenames=files)
+    tokenizer = EHRTokenizer(task='nextvisit', filenames=files)
     
-    #mlb = MultiLabelBinarizer(classes=list(tokenizer.getVoc('label').values()))
-    #mlb.fit([[each] for each in list(tokenizer.getVoc('label').values())])
+    mlb = MultiLabelBinarizer(classes=list(tokenizer.getVoc('label').values()))
+    mlb.fit([[each] for each in list(tokenizer.getVoc('label').values())])
     
-    '''
+    
     
     model_config = {
         'vocab_size': len(tokenizer.getVoc('code').keys()), # number of disease + symbols for word embedding
@@ -191,7 +177,7 @@ def main():
         'gender':False,
         'epochs':20,
     }
-    stats_path = '../data/datasets/synthea/All_cohorts/train_stats/'
+    stats_path = '../data/datasets/Synthea/Small_cohorts/train_stats/'
     condfiles = {'dd':stats_path + 'dd_cond_probs.empirical.p', 
                  'dp':stats_path + 'dp_cond_probs.empirical.p',
                  'dm':stats_path + 'dm_cond_probs.empirical.p',
@@ -205,11 +191,11 @@ def main():
     
     feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
     num_gpus = 8
-    folderpath = '../data/pytorch_datasets/Synthea/Small_cohorts'
+    folderpath = '../data/pytorch_datasets/Synthea/Small_cohorts/'
     
-    traind = EHRDatasetCodePrediction(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_nextvisit')
-    vald = EHRDatasetCodePrediction(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_nextvisit')
-    testd = EHRDatasetCodePrediction(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_nextvisit')
+    traind = EHRDatasetCodePrediction(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, labelvisit=labelvisit, save_folder=folderpath, tokenizer=tokenizer, run_type='train_nextvisit')
+    vald = EHRDatasetCodePrediction(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, labelvisit=labelvisit, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_nextvisit')
+    testd = EHRDatasetCodePrediction(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, labelvisit=labelvisit, save_folder=folderpath, conditional_files=condfiles, run_type='test_nextvisit')
     
    # num_train_examples = 1000
     
@@ -220,13 +206,13 @@ def main():
     
     tensorboarddir = '../logs/'
     
-    trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=True, pin_memory=True, num_workers=4*num_gpus)
-    valloader = torch.utils.data.DataLoader(vald, batch_size=train_params['batch_size'], shuffle=True, pin_memory=True, num_workers=4*num_gpus)
-    testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=True, pin_memory=True, num_workers=4*num_gpus)
+    trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
+    valloader = torch.utils.data.DataLoader(vald, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
+    testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     
-    PATH = "../saved_models/MLM/BEHRT_All_cohort_synthea"
-    train_test_model(model_config, tokenizer, mlb, trainloader, testloader, valloader, tensorboarddir, num_gpus, PATH, save_model=True)
-    '''
+    PATH = "../saved_models/MLM/CondBEHRT_small_cohorts_synthea"
+    train_test_model(model_config, tokenizer, mlb, trainloader, testloader, valloader, tensorboarddir, num_gpus, PATH, save_model=False)
+    
 if __name__=='__main__':
     main()
     

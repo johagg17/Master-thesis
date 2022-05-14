@@ -42,7 +42,7 @@ class TrainerBinaryPrediction(pl.LightningModule):
         '''Put comments here'''
         
         age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide = batch
-        loss, pred, labels, _ = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide)
+        loss, pred, labels, _, _ = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide)
         
         pred = pred.detach().cpu()
         labels =labels.cpu().type(torch.int32)
@@ -127,7 +127,7 @@ class TrainerCodes(pl.LightningModule):
         age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide = batch
         
         labels = torch.tensor(self.mlb.transform(labels.cpu().numpy()), dtype=torch.float32).cuda()
-        loss, pred, labels = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide=prior_guide)
+        loss, pred, labels, _, _ = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide=prior_guide)
         
         sig = nn.Sigmoid()
         output=sig(pred).detach().cpu().numpy()

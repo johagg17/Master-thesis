@@ -594,9 +594,10 @@ class BertSinglePrediction(PreTrainedBertModel):
         
         if labels is not None:
             output = torch.squeeze(output)
-            output = nn.Sigmoid()(output)
+            #output = nn.Sigmoid()(output)
             labels = labels[labels != -1]
-            loss = nn.BCELoss()(output.view(-1, self.num_labels), labels.float().view(-1, self.num_labels))
+            loss = nn.BCEWithLogitsLoss()(output.view(-1, self.num_labels), labels.float().view(-1, self.num_labels))
+            #loss = nn.BCELoss()(output.view(-1, self.num_labels), labels.float().view(-1, self.num_labels))
             return loss, output, labels, all_attention_outputs, poolout
         else:
             return output
