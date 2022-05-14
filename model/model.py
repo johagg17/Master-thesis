@@ -33,9 +33,6 @@ ACT2FN = {"gelu": gelu, "relu": torch.nn.functional.relu, "swish": swish}
     It will be a matrix with shape (batch_size, num_heads, max_codesy, maxcodesx), here maxcodesx = maxcodesy, 
     the attention mask will be
     
-    
-    
-    
 """
 
 
@@ -95,8 +92,11 @@ class BertEmbeddings(nn.Module):
 
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        
+        self.use_gender = config.gender
+        self.use_age = config.age
 
-    def forward(self, word_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, age=True, gender=True):
+    def forward(self, word_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None):
         if seg_ids is None:
             seg_ids = torch.zeros_like(word_ids)
         if age_ids is None:
@@ -112,12 +112,12 @@ class BertEmbeddings(nn.Module):
         gender_embed = self.gender_embeddings(gender_ids)
         posi_embeddings = self.posi_embeddings(posi_ids)
         
-        if gender:
-            embeddings = word_embed + segment_embed + age_embed + gender_embed + posi_embeddings
-        elif age:
-            embeddings = word_embed + segment_embed + age_embed + posi_embeddings
-        else:
-            embeddings = word_embed + segment_embed + posi_embeddings
+        embeddings = word_embed + segment_embed + posi_embeddings
+        if self.use_gender:
+            embeddings += gender_embed
+        if self.use_age:
+            embeddings += age_embed
+            
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
@@ -299,6 +299,7 @@ class BertLayer(nn.Module):
             attention_output, attention_score = self.customAttention(hidden_states, attention_mask, prior_guide)
         else:
             attention_output, attention_score = self.attention(hidden_states, attention_mask)
+            
             
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
@@ -491,6 +492,7 @@ class BertModel(PreTrainedBertModel):#Bert.modeling.BertPreTrainedModel):
         
         embedding_output = self.embeddings(input_ids, age_ids, gender_ids, seg_ids, posi_ids)
         encoded_layers, all_attention_outputs = self.encoder(embedding_output,extended_attention_mask, prior_guide, output_all_encoded_layers=output_all_encoded_layers)
+        
         sequence_output = encoded_layers[-1]
         pooled_output = self.pooler(sequence_output)
         if not output_all_encoded_layers:
@@ -551,15 +553,19 @@ class BertForMaskedLM(PreTrainedBertModel):
         self.cls = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None, prior_guide=None):
-        sequence_output, _, all_attention_outputs = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, prior_guide=prior_guide, output_all_encoded_layers=False)
+    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None, prior_guide=None, output_all_encoded_layers=False):
+        sequence_output, _, all_attention_outputs = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, prior_guide=prior_guide, output_all_encoded_layers=output_all_encoded_layers)
         
-        prediction_scores = self.cls(sequence_output)
+        if output_all_encoded_layers:
+            prediction_scores = self.cls(sequence_output[-1])
+        else:
+            prediction_scores = self.cls(sequence_output)
+            
 
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
             masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
-            return masked_lm_loss, prediction_scores.view(-1, self.config.vocab_size), labels.view(-1), all_attention_outputs
+            return masked_lm_loss, prediction_scores.view(-1, self.config.vocab_size), labels.view(-1), all_attention_outputs, sequence_output
         else:
             return prediction_scores
 
@@ -580,7 +586,7 @@ class BertSinglePrediction(PreTrainedBertModel):
         
         
     def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None, prior_guide=None):
-        _, poolout, all_attention_outputs = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, prior_guide=prior_guide, output_all_encoded_layers=False)
+        _, poolout, all_attention_outputs = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, prior_guide=prior_guide, output_all_encoded_layers=True)
         
         output = self.drop(poolout)
         
@@ -591,7 +597,7 @@ class BertSinglePrediction(PreTrainedBertModel):
             output = nn.Sigmoid()(output)
             labels = labels[labels != -1]
             loss = nn.BCELoss()(output.view(-1, self.num_labels), labels.float().view(-1, self.num_labels))
-            return loss, output, labels, all_attention_outputs
+            return loss, output, labels, all_attention_outputs, poolout
         else:
             return output
         
@@ -613,8 +619,8 @@ class BertMultiLabelPrediction(PreTrainedBertModel):
         self.apply(self.init_bert_weights)
         
         
-    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None):
-        _, poolout, _ = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, prior_guide=prior_guide, output_all_encoded_layers=False)
+    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, labels=None, prior_guide=None):
+        _, poolout, all_attention_outputs = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, prior_guide=prior_guide, output_all_encoded_layers=False)
         
         output = self.drop(poolout)
         
@@ -622,6 +628,6 @@ class BertMultiLabelPrediction(PreTrainedBertModel):
         
         if labels is not None:
             loss = nn.MultiLabelSoftMarginLoss()(output.view(-1, self.num_labels), labels.view(-1, self.num_labels))
-            return loss, output, labels
+            return loss, output, labels, all_attention_outputs, poolout
         else:
             return output

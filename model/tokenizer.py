@@ -52,9 +52,7 @@ class EHRTokenizer(object):
         # Used for nextvisit
         if task == 'nextvisit':
             self.label_voc = Voc()
-            path = '../processing/labelsvoc_ccsr.npy'
-            if task == 'ndc':
-                path = '../processing/labelsvoc_ndc.npy'
+            path = filenames['labels']
             self.add_vocab(path, self.label_voc)
         
     def add_vocab(self, vocab_file, vocab):

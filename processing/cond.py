@@ -49,7 +49,7 @@ class Patient(object):
 
 class EncounterInfo(object):#en visit
     
-    def __init__(self, patient_id, encounter_id, visit_number, readmission, icd_code, ndc):
+    def __init__(self, patient_id, encounter_id, visit_number, readmission, icd_code, ndc, procedures):
         self.patient_id = str(patient_id)
         self.encounter_id = str(encounter_id)
         self.readmission = str(readmission)
@@ -58,6 +58,9 @@ class EncounterInfo(object):#en visit
         self.labs = {}
         self.physicals = []
         self.treatments = ndc
+        self.procedures = procedures
+       # self.bmi = bmi
+        
         self.visit_number = visit_number
     def __str__(self):
         return ("patient_id:"+str(self.patient_id)+" visit number:"+str(self.visit_number)+" hadm_id:"+str(self.encounter_id)+"readmission:"+str(self.readmission))
@@ -65,9 +68,7 @@ class EncounterInfo(object):#en visit
 
 def process_patient(infile, encounter_dict, hour_threshold=24):
     
-    data = pd.read_parquet(infile)
-    data['label'] = data['label'].apply(lambda x: np.append(x, False))
-    
+    data = pd.read_parquet(infile)    
     
     count = 0
     r_count = 0
@@ -82,6 +83,8 @@ def process_patient(infile, encounter_dict, hour_threshold=24):
         readmission = line["label"]
         icd_code = line["diagnos_code"]
         ndc = line["medication_code"]
+        procedures = line["procedure_code"]
+        bmi = line["bmi_value"]
 
         if patient_id not in patient_dict:
             patient_dict[patient_id] = []
@@ -90,6 +93,8 @@ def process_patient(infile, encounter_dict, hour_threshold=24):
         patient_dict[patient_id].append(readmission)
         patient_dict[patient_id].append(icd_code)
         patient_dict[patient_id].append(ndc)
+        patient_dict[patient_id].append(procedures)
+        patient_dict[patient_id].append(bmi)
 
         count+=1
   
@@ -101,11 +106,15 @@ def process_patient(infile, encounter_dict, hour_threshold=24):
                 c_readmission = information[1][visit_no]
                 c_icd_code = information[2][visit_no]
                 c_ndc = information[3][visit_no]
+                c_procedures = information[4][visit_no]
+                #c_bmi = information[5][visit_no]
+                
+                
                 if c_readmission == 1:
                     r_count += 1
                 else:
                     nr_count += 1
-                ei = EncounterInfo(patient_id, c_hadm, visit_no, c_readmission, c_icd_code, c_ndc)
+                ei = EncounterInfo(patient_id, c_hadm, visit_no, c_readmission, c_icd_code, c_ndc, c_procedures)
                 if information[0][visit_no] in encounter_dict:
                     print('Duplicate encounter ID!!')
                 encounter_dict[c_hadm] = ei
@@ -123,6 +132,9 @@ def build_seqex(enc_dict,skip_duplicate=False,min_num_codes=1,max_num_codes=50):
     seqex_list = []
     dx_str2int = {}
     treat_str2int = {}
+    procedure_str2int = {}
+    bmi_str2int = {}
+    
     num_cut = 0
     num_duplicate = 0
     count = 0
@@ -136,16 +148,15 @@ def build_seqex(enc_dict,skip_duplicate=False,min_num_codes=1,max_num_codes=50):
     max_treatment_cut = 0
     num_expired = 0
     num_readmission = 0
+    
     print("len_enc",len(enc_dict))
     for _, enc in enc_dict.items():
-        #print(enc)
-        #sys.exit(0)
         if skip_duplicate:
             if (len(enc.dx_ids) > len(set(enc.dx_ids)) or
                 len(enc.treatments) > len(set(enc.treatments))):
                 num_duplicate += 1
                 continue
-
+        '''
         if len(set(enc.dx_ids)) < min_num_codes:
             min_dx_cut += 1
             continue
@@ -161,13 +172,14 @@ def build_seqex(enc_dict,skip_duplicate=False,min_num_codes=1,max_num_codes=50):
         if len(set(enc.treatments)) > max_num_codes:
             max_treatment_cut += 1
             continue
-
+        '''
+        
         count += 1
         num_dx_ids += len(enc.dx_ids)
         num_treatments += len(enc.treatments)
         num_unique_dx_ids += len(set(enc.dx_ids))
         num_unique_treatments += len(set(enc.treatments))
-
+        
         for dx_id in enc.dx_ids:
             if dx_id not in dx_str2int:
                 dx_str2int[dx_id] = len(dx_str2int)
@@ -175,7 +187,15 @@ def build_seqex(enc_dict,skip_duplicate=False,min_num_codes=1,max_num_codes=50):
         for treat_id in enc.treatments:
             if treat_id not in treat_str2int:
                 treat_str2int[treat_id] = len(treat_str2int)
-
+        
+        for procedure_id in enc.procedures:
+            if procedure_id not in procedure_str2int:
+                procedure_str2int[procedure_id] = len(procedure_str2int)
+        
+        #    if bmi_id not in bmi_str2_int:
+        #        bmi_str2int[bmi_id] = len(bmi_str2int)
+                
+                
         seqex = tf.train.SequenceExample()
         string = (enc.patient_id + ':' + enc.encounter_id).encode()
         seqex.context.feature['patientId'].bytes_list.value.append(string)
@@ -185,22 +205,42 @@ def build_seqex(enc_dict,skip_duplicate=False,min_num_codes=1,max_num_codes=50):
             num_readmission += 1
         else:
             seqex.context.feature['label.readmission'].int64_list.value.append(0)
-    
-        dx_ids = seqex.feature_lists.feature_list['dx_ids']
+        
+        # Add diagnoses
+        dx_ids = seqex.feature_lists.feature_list['dx_ids'] 
         enc.dx_ids = [str(x).encode() for x in enc.dx_ids]
         dx_ids.feature.add().bytes_list.value.extend(list(set(enc.dx_ids)))
 
         dx_int_list = [dx_str2int[int(item.decode())] for item in list(set(enc.dx_ids))]
         dx_ints = seqex.feature_lists.feature_list['dx_ints']
         dx_ints.feature.add().int64_list.value.extend(dx_int_list)
-
+        
+        # Add medications
         enc.treatments = [str(x).encode() for x in enc.treatments]
-        proc_ids = seqex.feature_lists.feature_list['proc_ids']
-        proc_ids.feature.add().bytes_list.value.extend(list(set(enc.treatments)))
+        med_ids = seqex.feature_lists.feature_list['med_ids']
+        med_ids.feature.add().bytes_list.value.extend(list(set(enc.treatments)))
 
-        proc_int_list = [treat_str2int[int(item.decode())] for item in list(set(enc.treatments))]
+        med_int_list = [treat_str2int[int(item.decode())] for item in list(set(enc.treatments))]
+        med_ints = seqex.feature_lists.feature_list['med_ints']
+        med_ints.feature.add().int64_list.value.extend(med_int_list)
+        
+        # Add procedures
+        enc.procedures = [str(x).encode() for x in enc.procedures]
+        proc_ids = seqex.feature_lists.feature_list['proc_ids']
+        proc_ids.feature.add().bytes_list.value.extend(list(set(enc.procedures)))
+
+        proc_int_list = [procedure_str2int[int(item.decode())] for item in list(set(enc.procedures))]
         proc_ints = seqex.feature_lists.feature_list['proc_ints']
         proc_ints.feature.add().int64_list.value.extend(proc_int_list)
+        
+        # Add bmi
+       # enc.bmi = [str(x).encode() for x in enc.bmi]
+       # bmi_ids = seqex.feature_lists.feature_list['bmi_ids']
+       # bmi_ids.feature.add().bytes_list.value.extend(list(set(enc.bmi)))
+
+       # bmi_int_list = [treat_str2int[int(item.decode())] for item in list(set(enc.bmi))]
+       # bmi_ints = seqex.feature_lists.feature_list['bmi_ints']
+       # bmi_ints.feature.add().int64_list.value.extend(bmi_int_list)        
 
         seqex_list.append(seqex)
         key = seqex.context.feature['patientId'].bytes_list.value[0]
@@ -226,13 +266,18 @@ def count_conditional_prob_dp(seqex_list, output_path, train_key_set=None):
     
   
     print("Conditional probabilites")
-    dx_freqs = {}
-    proc_freqs = {}
-    dp_freqs = {}
-
-    dd_freqs = {}
-    pp_freqs = {}
-
+    dx_freqs = {} # Diagnoses frequency
+    med_freqs = {} # Medication freqs
+    proc_freqs = {} # Procedure freqs
+    
+    dd_freqs = {} # Diagnose-Diagnose freqs
+    pp_freqs = {} # Procedure-Procedure freqs
+    mm_freqs = {} # Medication-Medication freqs
+    dp_freqs = {} # Diagnose-procedure freqs 
+    dm_freqs = {} # Diagnose-Medication freqs
+    pm_freqs = {} # Procedure-Medication freqs
+    
+    
     total_visit = 0
     for seqex in seqex_list:
         if total_visit % 1000 == 0:
@@ -244,111 +289,199 @@ def count_conditional_prob_dp(seqex_list, output_path, train_key_set=None):
             total_visit += 1
             continue
 
-        dx_ids = seqex.feature_lists.feature_list['dx_ids'].feature[
-            0].bytes_list.value
-        proc_ids = seqex.feature_lists.feature_list['proc_ids'].feature[
-            0].bytes_list.value
-
+        dx_ids = seqex.feature_lists.feature_list['dx_ids'].feature[0].bytes_list.value # Diagnoses
+        med_ids = seqex.feature_lists.feature_list['med_ids'].feature[0].bytes_list.value # Meds
+        proc_ids = seqex.feature_lists.feature_list['proc_ids'].feature[0].bytes_list.value # Procedures
+        
+        # Diagnoses P(D)
         for dx in dx_ids:
             dx = dx.decode()
             if dx not in dx_freqs:
                 dx_freqs[dx] = 0
             dx_freqs[dx] += 1
-
+            
+        # Medications P(M)
+        for med in med_ids:
+            med = med.decode()
+            if med not in med_freqs:
+                med_freqs[med] = 0
+            med_freqs[med] += 1
+        
+        # Procedures P(Proc)
         for proc in proc_ids:
             proc = proc.decode()
+            if proc == '-1':
+                continue
+                
             if proc not in proc_freqs:
                 proc_freqs[proc] = 0
             proc_freqs[proc] += 1
-
+            
+        # Diagnoses and Medications P(D and M)
+        for dx in dx_ids:
+            for med in med_ids:
+                dm = dx.decode() + ',' + med.decode()
+                if dm not in dm_freqs:
+                    dm_freqs[dm] = 0
+                dm_freqs[dm] += 1    
+        
+        # Diagnoses and procedures P(D and Proc)
         for dx in dx_ids:
             for proc in proc_ids:
-            #print("Proc:, ", proc)
+                if proc.decode() == '-1':
+                    continue
                 dp = dx.decode() + ',' + proc.decode()
                 if dp not in dp_freqs:
                     dp_freqs[dp] = 0
                 dp_freqs[dp] += 1
-
+                
+        # Procedures and Medications P(Proc and Medications)
+        for med in med_ids:
+            for proc in proc_ids:
+                if proc.decode() == '-1':
+                    continue
+                mp = med.decode() + ',' + proc.decode()
+                if mp not in pm_freqs:
+                    pm_freqs[mp] = 0
+                pm_freqs[mp] += 1
+                
+        # Diagnoses and Diagnoses P(D and D)
         for dx1 in dx_ids:
             for dx2 in dx_ids:
                 dd = dx1.decode() + ',' + dx2.decode()
                 if dd not in dd_freqs:
                     dd_freqs[dd] = 0
                 dd_freqs[dd] += 1
-
+                
+        # Procedures and Procedures P(Proc and Proc)
         for proc1 in proc_ids:
+            if proc1.decode() == '-1':
+                continue
             for proc2 in proc_ids:
+                if proc2.decode() == '-1':
+                    continue
                 pp = proc1.decode() + ',' + proc2.decode()
                 if pp not in pp_freqs:
                     pp_freqs[pp] = 0
                 pp_freqs[pp] += 1
+                
+        # Procedures and Procedures P(M and M)
+        for med1 in med_ids:
+            for med2 in med_ids:
+                mm = med1.decode() + ',' + med2.decode()
+                if mm not in mm_freqs:
+                    mm_freqs[mm] = 0
+                mm_freqs[mm] += 1
 
         total_visit += 1
 
-    dx_probs = dict([(k, v / float(total_visit)) for k, v in dx_freqs.items()
-                  ])
-    proc_probs = dict([
-      (k, v / float(total_visit)) for k, v in proc_freqs.items()
-    ])
-    dp_probs = dict([(k, v / float(total_visit)) for k, v in dp_freqs.items()
-                  ])
+    dx_probs = dict([(k, v / float(total_visit)) for k, v in dx_freqs.items()]) # P(D)
+    med_probs = dict([(k, v / float(total_visit)) for k, v in med_freqs.items()]) # P(M)
+    proc_probs = dict([(k, v / float(total_visit)) for k, v in proc_freqs.items()]) # P(Procs)
+    
+    dp_probs = dict([(k, v / float(total_visit)) for k, v in dp_freqs.items()]) # P(D and Procs)
+    dm_probs = dict([(k, v / float(total_visit)) for k, v in dm_freqs.items()]) # P(D and M)
+    mp_probs = dict([(k, v / float(total_visit)) for k, v in pm_freqs.items()]) # P (M and P)
+    
+    dd_probs = dict([(k, v / float(total_visit)) for k, v in dd_freqs.items()]) # P(D and D)
+    pp_probs = dict([(k, v / float(total_visit)) for k, v in pp_freqs.items()]) # P(Procs and Procs) 
+    mm_probs = dict([(k, v / float(total_visit)) for k, v in mm_freqs.items()]) # P(M and M) 
 
-    dd_probs = dict([(k, v / float(total_visit)) for k, v in dd_freqs.items()])
-
-    pp_probs = dict([(k, v / float(total_visit)) for k, v in pp_freqs.items()])
-
-    # Calculate dd and pp cond probs.   
-    dd_cond_probs = {}
-    pp_cond_probs = {}
-
+    # Calculate dd, pp, and mm cond probs.   
+    dd_cond_probs = {} # P(D|D)
+    pp_cond_probs = {} # P(P|P)
+    mm_cond_probs = {} # P(M|M)
+    
+    # P(D|D)
     for dx1, dx_prob1 in dx_probs.items():
-        for dx2, dx_prob2 in dx_probs.items():
+        for dx2, dx_prob2 in dx_probs.items(): #P(A|B) = P (A and B) / P(B)
             dd = dx1 + ',' + dx2
             if dd in dd_probs:
-                dd_cond_probs[dd] = dd_probs[dd] / dx_prob1
+                dd_cond_probs[dd] = dd_probs[dd] / dx_prob2
             else:
                 dd_cond_probs[dd] = 0.0
 
-
+    # P(P|P)
     for proc1, proc_prob1 in proc_probs.items():
         for proc2, proc_prob2 in proc_probs.items():
-            pp = proc1 + ',' + proc1
+            pp = proc1 + ',' + proc2
             if pp in pp_probs:
-                pp_cond_probs[pp] = pp_probs[pp] / proc_prob1
+                pp_cond_probs[pp] = pp_probs[pp] / proc_prob2
             else:
                 pp_cond_probs[dd] = 0.0
 
-
-    dp_cond_probs = {}
-    pd_cond_probs = {}
+    # P(M|M)
+    for med1, med_prob1 in med_probs.items():
+        for med2, med_prob2 in med_probs.items():
+            mm = med1 + ',' + med2
+            if mm in mm_probs:
+                mm_cond_probs[mm] = mm_probs[mm] / med_prob2
+            else:
+                mm_cond_probs[mm] = 0.0
+    
+    
+    dp_cond_probs = {} # P(D|P)
+    dm_cond_probs = {} # P(D|M)
+    
+    pd_cond_probs = {} # P(P|D)
+    pm_cond_probs = {} # P(P|M)
+    
+    md_cond_probs = {} # P(M|D)
+    mp_cond_probs = {} # P(M|P)
+    
+    # P(D|P) and P(P|D)
     for dx, dx_prob in dx_probs.items():
-        
         for proc, proc_prob in proc_probs.items():
             dp = dx + ',' + proc
             pd = proc + ',' + dx
             if dp in dp_probs:
-                dp_cond_probs[dp] = dp_probs[dp] / dx_prob
-                pd_cond_probs[pd] = dp_probs[dp] / proc_prob
+                dp_cond_probs[dp] = dp_probs[dp] / proc_prob # P(D|P) = P(D and P) / P(P)
+                pd_cond_probs[pd] = dp_probs[dp] / dx_prob # P(P|D) P (P and D) / P(D)
             else:
                 dp_cond_probs[dp] = 0.0
                 pd_cond_probs[pd] = 0.0
-
-    pickle.dump(dx_probs, open(output_path + '/dx_probs.empirical.p', 'wb'), -1)
-    pickle.dump(proc_probs, open(output_path + '/proc_probs.empirical.p', 'wb'),
-              -1)
-    pickle.dump(dp_probs, open(output_path + '/dp_probs.empirical.p', 'wb'), -1)
-    pickle.dump(dp_cond_probs,
-              open(output_path + '/dp_cond_probs.empirical.p', 'wb'), -1)
-    pickle.dump(pd_cond_probs,
-              open(output_path + '/pd_cond_probs.empirical.p', 'wb'), -1)
-
-    pickle.dump(dd_cond_probs,
-              open(output_path + '/dd_cond_probs.empirical.p', 'wb'), -1)
-
-    pickle.dump(pp_cond_probs,
-              open(output_path + '/pp_cond_probs.empirical.p', 'wb'), -1)
+    
+    # P(D|M) and P(M|D)
+    for dx, dx_prob in dx_probs.items():
+        for med, med_prob in med_probs.items():
+            dm = dx + ',' + med
+            md = med + ',' + dx
+            if dm in dm_probs:
+                dm_cond_probs[dm] = dm_probs[dm] / med_prob # P(D|M) = P(D and M) / P(M)
+                md_cond_probs[md] = dm_probs[dm] / dx_prob # P(M|D) = P(M and D) / P(D)
+            else:
+                dm_cond_probs[dm] = 0.0
+                md_cond_probs[md] = 0.0    
+                
+    # P(P|M) and P(M|P)
+    for proc, proc_prob in proc_probs.items():
+        for med, med_prob in med_probs.items():
+            pm = proc + ',' + med
+            mp = med + ',' + proc
+            if mp in mp_probs:
+                pm_cond_probs[pm] = mp_probs[mp] / med_prob # P(P|M) = P(P and M) / P(M)
+                mp_cond_probs[mp] = mp_probs[mp] / proc_prob # P(M|P) = P(M and P) / P(P)
+            else:
+                pm_cond_probs[pm] = 0.0
+                mp_cond_probs[mp] = 0.0 
     
     
+
+    #pickle.dump(dx_probs, open(output_path + '/dx_probs.empirical.p', 'wb'), -1)
+    #pickle.dump(proc_probs, open(output_path + '/proc_probs.empirical.p', 'wb'),-1)
+    #pickle.dump(dp_probs, open(output_path + '/dp_probs.empirical.p', 'wb'), -1)
+
+    pickle.dump(dp_cond_probs,open(output_path + '/dp_cond_probs.empirical.p', 'wb'), -1) # D-P
+    pickle.dump(dm_cond_probs,open(output_path + '/dm_cond_probs.empirical.p', 'wb'), -1) # D-M
+    pickle.dump(dd_cond_probs,open(output_path + '/dd_cond_probs.empirical.p', 'wb'), -1) # D-D
+    
+    pickle.dump(pd_cond_probs,open(output_path + '/pd_cond_probs.empirical.p', 'wb'), -1) # P-D
+    pickle.dump(pm_cond_probs,open(output_path + '/pm_cond_probs.empirical.p', 'wb'), -1) # P-M
+    pickle.dump(pp_cond_probs,open(output_path + '/pp_cond_probs.empirical.p', 'wb'), -1) # P-P
+    
+    pickle.dump(md_cond_probs,open(output_path + '/md_cond_probs.empirical.p', 'wb'), -1) # M-D
+    pickle.dump(mp_cond_probs,open(output_path + '/mp_cond_probs.empirical.p', 'wb'), -1) # M-P
+    pickle.dump(mm_cond_probs,open(output_path + '/mm_cond_probs.empirical.p', 'wb'), -1) # M-M
     
 def add_sparse_prior_guide_dp(seqex_list,stats_path,key_set=None,max_num_codes=50):
     
@@ -408,8 +541,7 @@ def add_sparse_prior_guide_dp(seqex_list,stats_path,key_set=None,max_num_codes=5
                 #indices.append((i, max_num_codes + j))
                 prob = 0.0 if pp not in pp_cond_probs else pp_cond_probs[pp]
                 values.append(prob)        
-            
-            
+                
         for i, dx in enumerate(dx_ids):
             dx = dx.decode()
             for j, proc in enumerate(proc_ids):
@@ -496,7 +628,7 @@ def main(argv):
     output_path = argv[2]
     num_fold = 1
 
-    patient_file = input_path + '/readmission_data_synthea2'
+    patient_file = input_path
  
     encounter_dict = {}
     print('Processing data')
@@ -510,9 +642,9 @@ def main(argv):
 
     stats_path = output_path + '/train_stats'
     
-    #count_conditional_prob_dp(seqex_list, stats_path)
-    train_seqex = add_sparse_prior_guide_dp(seqex_list, stats_path, max_num_codes=50)
-    create_patient_objects(train_seqex, input_path) 
+    count_conditional_prob_dp(seqex_list, stats_path)
+    #train_seqex = add_sparse_prior_guide_dp(seqex_list, stats_path, max_num_codes=50)
+    #create_patient_objects(train_seqex, input_path) 
 
 if __name__ == '__main__':
     main(sys.argv)

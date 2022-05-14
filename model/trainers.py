@@ -11,8 +11,15 @@ import torch
 from torchmetrics import AUROC
 from torchmetrics import F1Score
 
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+import pandas as pd
 import sys
 
+sys.path.insert(1, '../')
+from utils.packages import *
 
 '''
 Trainer for Binary task. 
@@ -58,7 +65,7 @@ class TrainerBinaryPrediction(pl.LightningModule):
         self.log("Training AUC", trainaucscore)
         self.log("Training AUCPR", trainaucprecision)
         
-        return {'loss': traingloss, 'f1-score': trainf1score, 'AUC': trainaucscore, 'AUCPR': trainaucprecision} 
+        return {'loss': traingloss, 'f1-score': trainf1score, 'AUC': trainaucscore, 'AUCPR': trainaucprecision}     
     
     def validation_step(self, batch, batch_idx):
         valloss, valf1score, valaucscore, valaucprecision = self.make_prediction(batch)
@@ -85,6 +92,9 @@ class TrainerBinaryPrediction(pl.LightningModule):
         
         return {'loss': loss, 'f1-score': f1score, 'AUC': aucscore, 'AUCPR': aucprecision}
     
+    def optimizer_zero_grad(self, epoch, batch_idx, optimizer, optimizer_idx):
+        optimizer.zero_grad(set_to_none=True)
+                            
     def configure_optimizers(self):
         """Put comments here"""
         # Note: dont use list if only one item.. Causes silent crashes
@@ -102,6 +112,7 @@ Trainer for Code prediction
 class TrainerCodes(pl.LightningModule):
     
     def __init__(self, model, optim, optim_param, binarizer):
+        super(TrainerCodes, self).__init__()
         self.model = model
         self.optim = optim
         self.optim_param = optim_param
@@ -116,7 +127,7 @@ class TrainerCodes(pl.LightningModule):
         age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide = batch
         
         labels = torch.tensor(self.mlb.transform(labels.cpu().numpy()), dtype=torch.float32).cuda()
-        loss, pred, labels = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels)
+        loss, pred, labels = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide=prior_guide)
         
         sig = nn.Sigmoid()
         output=sig(pred).detach().cpu().numpy()
@@ -124,7 +135,6 @@ class TrainerCodes(pl.LightningModule):
 
         aucpr = average_precision_score(labels, output, average='weighted')
         roc = skm.roc_auc_score(labels,output, average='samples')
-                
         return (loss, roc, aucpr)
     
     def training_step(self, batch, batch_idx):
@@ -136,7 +146,7 @@ class TrainerCodes(pl.LightningModule):
         self.log("Training AUC", trainingAUC)
         self.log("Training AUCPR", trainingAUCPR)
         
-        return {'Training loss': trainingloss, 'Training AUC': trainingAUC, 'Training AUCPR':trainingAUCPR} 
+        return {'loss': trainingloss, 'AUC': trainingAUC, 'AUCPR':trainingAUCPR} 
     
     def validation_step(self, batch, batch_idx):
         '''Put comments here'''
@@ -146,7 +156,7 @@ class TrainerCodes(pl.LightningModule):
         self.log("Validation AUC", valAUC)
         self.log("Validation AUCPR", valAUCPR)
         
-        return {'Validation loss': valloss, 'Validation AUC': valAUC, 'Validation AUCPR':valAUCPR} 
+        return {'loss': valloss, 'AUC': valAUC, 'AUCPR':valAUCPR} 
     
     def test_step(self, batch, batch_idx):
         '''Put comments here'''
@@ -157,16 +167,20 @@ class TrainerCodes(pl.LightningModule):
         self.log("Test AUC", testAUC)
         self.log("Test AUCPR", testAUCPR)
         
-        return {'Test loss': testloss, 'Test AUC': testAUC, 'Test AUCPR':testAUCPR} 
+        return {'loss': testloss, 'AUC': testAUC, 'AUCPR':testAUCPR} 
     
     def predict_step(self, batch, batch_idx):
         
         '''Put comments here'''
         
         testloss, testAUC, testAUCPR = self.make_predictions(batch)
-        return {'Predict loss': testloss, 'Predict AUC': testAUC, 'Predict AUCPR': testAUCPR} 
+        return {'loss': testloss, 'AUC': testAUC, 'AUCPR': testAUCPR} 
     
-    
+    def configure_optimizers(self):
+        """Put comments here"""
+        # Note: dont use list if only one item.. Causes silent crashes
+        #optimizer = torch.optim.Adam(self.model.parameters())
+        return self.optim
 
 '''
 Trainer for MLM
@@ -175,7 +189,7 @@ Trainer for MLM
 class TrainerMLM(pl.LightningModule):
     ''' LightningModule for training the model using MLM. '''
     
-    def __init__(self, model, optim, optim_param, reg_coef):
+    def __init__(self, model, optim, optim_param, reg_coef, use_prior, output_all_encoded_layers=False):
         '''
         Takes three parameters: 
             model - the model that should be trained
@@ -183,13 +197,22 @@ class TrainerMLM(pl.LightningModule):
             optim_param - optimizer parameters
         
         '''
-        super(TrainerMLM, self).__init__()
+        #super(TrainerMLM, self).__init__()
+        super().__init__()
         
         self.model = model
         self.opt = optim
         self.optim_param = optim_param
         self.reg_coef = reg_coef
+        self.use_prior = use_prior
         
+        self.output_all_encoded_layers = output_all_encoded_layers
+        
+        self.encoded_outputs = None
+        self.mask = None
+        
+        self.epoch = 0
+       
     def compute_acc(self, pred, label):
         '''Put comments here '''
         
@@ -213,31 +236,41 @@ class TrainerMLM(pl.LightningModule):
     def make_prediction(self, batch):
         age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide = batch
         
-        loss, pred, labels, attentions = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide)
+        loss, pred, labels, attentions, encoded_outputs = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide)
+        #if not self.encoded_outputs:
+        #    self.encoded_outputs = encoded_outputs
+        #    self.mask = attmask
+        #else:
+        #    self.encoded_outputs = [torch.cat((i, encoded_outputs[idx]), 0) for idx, i in enumerate(self.encoded_outputs)]
+        #    self.mask = torch.cat((self.mask, attmask), 0)
                 
+            
+            
+        
         precision = self.compute_acc(pred, labels)
         
         # Compute KL-Divergence loss
-        kl_terms = []
-        nattentions = len(attentions)
-        # attention shape: (batch size, seqlength, hiddendim)
-        epsilon = 1e-12
-        for i in range(1, nattentions):
-            log_p = torch.log(attentions[i-1] + epsilon)
-            log_q = torch.log(attentions[i] + epsilon)
-            kl_term = attentions[i-1] * (log_p - log_q)
-            kl_term = torch.sum(kl_term, axis=-1)
-            kl_term = torch.mean(kl_term)
-            kl_terms.append(kl_term)
-        reg_term =torch.mean(torch.stack(kl_terms), dim=0)
-        loss += self.reg_coef * reg_term
+        if self.use_prior:
+            kl_terms = []
+            nattentions = len(attentions)
+            # attention shape: (batch size, seqlength, hiddendim)
+            epsilon = 1e-12
+            for i in range(1, nattentions):
+                log_p = torch.log(attentions[i-1] + epsilon)
+                log_q = torch.log(attentions[i] + epsilon)
+                kl_term = attentions[i-1] * (log_p - log_q)
+                kl_term = torch.sum(kl_term, axis=-1)
+                kl_term = torch.mean(kl_term)
+                kl_terms.append(kl_term)
+            reg_term =torch.mean(torch.stack(kl_terms), dim=0)
+            loss += self.reg_coef * reg_term
         
         return (loss, precision)
         
         
     def forward(self, age_ids, gender_ids, input_ids, posi_ids, segment_ids, attMask, labels, prior_guide):
         '''Comment for function '''
-        return self.model(input_ids, age_ids=age_ids, gender_ids=gender_ids, seg_ids=segment_ids, posi_ids=posi_ids, attention_mask=attMask, labels=labels, prior_guide=prior_guide)
+        return self.model(input_ids, age_ids=age_ids, gender_ids=gender_ids, seg_ids=segment_ids, posi_ids=posi_ids, attention_mask=attMask, labels=labels, prior_guide=prior_guide, output_all_encoded_layers=self.output_all_encoded_layers)
     
     
     def training_step(self, batch, batch_idx):
@@ -250,6 +283,23 @@ class TrainerMLM(pl.LightningModule):
         
         return {'loss': loss, 'precision': precision}
     
+    
+    def training_epoch_end(self, output):
+        
+        
+        if self.output_all_encoded_layers:
+            encoded_outs = self.encoded_outputs
+            mask = self.mask
+            
+            #vis_encoder_latent(encoded_outs, mask, self.epoch, '../train/')
+            
+            self.encoded_outputs = None
+            self.mask = None
+            
+            self.epoch+=1
+            
+            
+             
     def validation_step(self, batch, batch_idx):
         '''Put comments here '''
         loss, precision = self.make_prediction(batch)
