@@ -48,7 +48,6 @@ class EHRTokenizer(object):
         file_agevoc = filenames['age']
         self.add_vocab(file_agevoc, self.age_voc)
         self.age_voc.add_sentence(['[PAD]'])
-        
         # Used for nextvisit
         if task == 'nextvisit':
             self.label_voc = Voc()
@@ -57,7 +56,7 @@ class EHRTokenizer(object):
         
     def add_vocab(self, vocab_file, vocab):
         voc = vocab
-        vocarray = list(map(str,np.load(vocab_file)))
+        vocarray = list(map(str,np.load(vocab_file, allow_pickle=True)))
         voc.add_sentence(vocarray)
   
     def convert_tokens_to_ids(self, tokens, voc):

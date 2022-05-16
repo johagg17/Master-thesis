@@ -69,8 +69,6 @@ def load_data(data_name, visit_label):
     val = fix_length(val, visit_label)
     test = fix_length(test, visit_label)
     
-   # print(train['diagnos_code'].iloc[0])
-    #print(train['hadm_id'].iloc[0])
     all_data = pd.concat([train, val, test])
     
     voc_path = '../data/vocabularies/' + data_name
@@ -79,7 +77,7 @@ def load_data(data_name, visit_label):
     return train, val, test
 
 
-def train_test_model(config, tokenizer, mlb, trainloader, testloader, valloader, tensorboarddir, num_gpus, path_to_model, save_model=False):
+def train_test_model(config, tokenizer, mlb, trainloader, testloader, valloader, tensorboarddir, num_gpus, path_to_model, save_path, save_model=False):
     
     trainer = pl.Trainer(
             max_epochs=config['epochs'], 
@@ -118,16 +116,14 @@ def train_test_model(config, tokenizer, mlb, trainloader, testloader, valloader,
     
     if save_model:
         print("Saving model")
-        torch.save(model.state_dict(), PATH)
-        
-        
-
+        torch.save(model.state_dict(), save_path)
 
 def main():
     
     
-    dataset_name = 'Synthea/Small_cohorts/'
-    labelvisit = 10
+    #dataset_name = 'Synthea/Small_cohorts/'
+    dataset_name = 'MIMIC/'
+    labelvisit = 3
     train, val, test = load_data(dataset_name, labelvisit)
     
     feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
@@ -148,7 +144,6 @@ def main():
              'age':'../data/vocabularies/' + dataset_name + age_voc,
              'labels':'../data/vocabularies/' + dataset_name + label_voc,
             }
-    
     
     tokenizer = EHRTokenizer(task='nextvisit', filenames=files)
     
@@ -175,7 +170,7 @@ def main():
         'reg':0.1,
         'age':True,
         'gender':False,
-        'epochs':20,
+        'epochs':15,
     }
     stats_path = '../data/datasets/Synthea/Small_cohorts/train_stats/'
     condfiles = {'dd':stats_path + 'dd_cond_probs.empirical.p', 
@@ -191,7 +186,7 @@ def main():
     
     feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
     num_gpus = 8
-    folderpath = '../data/pytorch_datasets/Synthea/Small_cohorts/'
+    folderpath = '../data/pytorch_datasets/' + dataset_name
     
     traind = EHRDatasetCodePrediction(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, labelvisit=labelvisit, save_folder=folderpath, tokenizer=tokenizer, run_type='train_nextvisit')
     vald = EHRDatasetCodePrediction(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, labelvisit=labelvisit, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_nextvisit')
@@ -210,8 +205,10 @@ def main():
     valloader = torch.utils.data.DataLoader(vald, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     
-    PATH = "../saved_models/MLM/CondBEHRT_small_cohorts_synthea"
-    train_test_model(model_config, tokenizer, mlb, trainloader, testloader, valloader, tensorboarddir, num_gpus, PATH, save_model=False)
+    #PATH = '../saved_models/MLM/BEHRT_Synthea'
+    PATH = '../saved_models/MLM/BEHRT_MIMIC'
+    save_path = '../saved_models/NextxVisit/BEHRT_MIMIC_NextVisit{}'.format(labelvisit)
+    train_test_model(model_config, tokenizer, mlb, trainloader, testloader, valloader, tensorboarddir, num_gpus, PATH, save_path, save_model=True)
     
 if __name__=='__main__':
     main()

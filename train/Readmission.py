@@ -175,7 +175,7 @@ def main():
     testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     
     tensorboarddir = '../logs/'
-    PATH = "../saved_models/MLM/CondBEHRT_small_cohorts_synthea"
+    PATH = '../saved_models/MLM/BEHRT_Synthea'
     
     train_test_model(model_config, tokenizer, trainloader, testloader, valloader, tensorboarddir, num_gpus, PATH, save_model=False)
     

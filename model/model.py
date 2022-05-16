@@ -296,6 +296,7 @@ class BertLayer(nn.Module):
     def forward(self, hidden_states, attention_mask, prior_guide):
         attention_score = None
         if ((self.use_prior) and (self.layer_idx == 0)):
+            print("Hello")
             attention_output, attention_score = self.customAttention(hidden_states, attention_mask, prior_guide)
         else:
             attention_output, attention_score = self.attention(hidden_states, attention_mask)

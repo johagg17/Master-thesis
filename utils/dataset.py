@@ -175,6 +175,7 @@ class EHRDataset(Dataset):
         prior_guide = create_prior_guide(self.codemaps, codes)
         prior_guide = np.array(prior_guide).reshape(self.max_len, -1)
         
+        #print(age)
         age_ids = self.tokenizer.convert_tokens_to_ids(age, 'age') # Convert age to ids
         gender_ids = self.tokenizer.convert_tokens_to_ids(gender, 'gender') # Convert gender to ids
         code_ids = self.tokenizer.convert_tokens_to_ids(codes, 'code') # Convert codes to ids
@@ -338,7 +339,6 @@ class EHRDatasetReadmission(Dataset):
         
         prior_guide = create_prior_guide(self.codemaps, codes)
         prior_guide = np.array(prior_guide).reshape(self.max_len, -1)
-        
         age_ids = self.tokenizer.convert_tokens_to_ids(age, 'age')
         gender_ids = self.tokenizer.convert_tokens_to_ids(gender, 'gender')
         code_ids = self.tokenizer.convert_tokens_to_ids(codes, 'code')

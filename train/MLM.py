@@ -15,7 +15,7 @@ optim_param = {
 }
 
 train_params = {
-    'batch_size': 256,
+    'batch_size': 32,
     'use_cuda': True,
     'max_len_seq': global_params['max_seq_len'],
     'device': 'cuda' #change this to run on cuda #'cuda:0'
@@ -116,7 +116,7 @@ def train_test_model(config, PATH, trainloader, testloader, valloader, tensorboa
     
 def main():
     
-    dataset_name = 'Synthea/Small_cohorts/'
+    dataset_name = 'MIMIC/'
     train, val, test = load_data(dataset_name)
     
     feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
@@ -135,12 +135,10 @@ def main():
         
    # print('../data/vocabularies/' + dataset_name + code_voc)    
     #print(np.load('../data/vocabularies/' + dataset_name + code_voc, allow_pickle=True))
-    
     files = {'code':'../data/vocabularies/' + dataset_name + code_voc,
              'age':'../data/vocabularies/' + dataset_name + age_voc,
             }
     tokenizer = EHRTokenizer(task='MLM', filenames=files)
-    
     model_config = {
         'vocab_size': len(tokenizer.getVoc('code').keys()), # number of disease + symbols for word embedding
         'hidden_size': 288, #tune.choice([100, 150, 288]), #288, # word embedding and seg embedding hidden size
@@ -159,7 +157,7 @@ def main():
         'reg':0.5,
         'age':True,
         'gender':False,
-        'epochs':1,
+        'epochs':40,
     }
     
     stats_path = '../data/datasets/Synthea/Small_cohorts/train_stats/'
@@ -176,20 +174,19 @@ def main():
     
     feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
     num_gpus = 8
-    folderpath = '../data/pytorch_datasets/Synthea/Small_cohorts/'
+    folderpath = '../data/pytorch_datasets/' + dataset_name
     traind = EHRDataset(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_diagnosis')
     vald = EHRDataset(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_diagnosis')
     testd = EHRDataset(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_diagnosis')
     
-   # num_train_examples = 1000
-    
+  # num_train_examples = 1000  
   #  traind = torch.utils.data.Subset(traind, np.arange(num_train_examples))
   #  vald = torch.utils.data.Subset(vald, np.arange(num_train_examples))
   #  testd = torch.utils.data.Subset(testd, np.arange(num_train_examples))
     
     
     tensorboarddir = '../logs/'
-    PATH = '../saved_models/MLM/CondBEHRT_small_cohorts_synthea'
+    PATH = '../saved_models/MLM/BEHRT_MIMIC_Large'
     
     trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     valloader = torch.utils.data.DataLoader(vald, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
