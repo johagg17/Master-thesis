@@ -57,6 +57,10 @@ class EHRDataset(Dataset):
         self.use_m = feature_types['medications'] # Use medications
         self.use_p = feature_types['procedures'] # Use procedures
         
+        print("Use diagnosis: {}".format(self.use_d))
+        print("Use medications: {}".format(self.use_m))
+        print("Use procedures: {}".format(self.use_p))
+        
         def save_dataset(patient_dict):
             path = self.save_folder + '_MLM_' + self.run_type
             save_file = open(path + '.pkl', 'wb')
@@ -99,8 +103,9 @@ class EHRDataset(Dataset):
                     if self.use_m:
                         admission_input.extend(ndc_codes[i])
                         tot_len += len(ndc_codes[i])
-                    
-                    if ((self.use_p) and (procedure_codes[i] != -1)):
+                        
+                    #print(procedure_codes[i])
+                    if ((self.use_p) and (not (-1 in procedure_codes[i]))):
                         admission_input.extend(procedure_codes[i])
                         tot_len += len(procedure_codes[i])
                         
@@ -175,13 +180,14 @@ class EHRDataset(Dataset):
         prior_guide = create_prior_guide(self.codemaps, codes)
         prior_guide = np.array(prior_guide).reshape(self.max_len, -1)
         
-        #print(age)
+        
         age_ids = self.tokenizer.convert_tokens_to_ids(age, 'age') # Convert age to ids
         gender_ids = self.tokenizer.convert_tokens_to_ids(gender, 'gender') # Convert gender to ids
         code_ids = self.tokenizer.convert_tokens_to_ids(codes, 'code') # Convert codes to ids
         label = self.tokenizer.convert_tokens_to_ids(label, 'code') # Convert labels to ids    
+        tokens = self.tokenizer.convert_tokens_to_ids(tokens, 'code') # Convert labels to ids   
                 
-        return torch.LongTensor(age_ids), torch.LongTensor(gender_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), torch.LongTensor(mask), torch.LongTensor(label), torch.FloatTensor(prior_guide)
+        return torch.LongTensor(age_ids), torch.LongTensor(gender_ids), torch.LongTensor(code_ids), torch.LongTensor(position), torch.LongTensor(segment), torch.LongTensor(mask), torch.LongTensor(label), torch.FloatTensor(prior_guide), torch.LongTensor(tokens)
           
     def __len__(self):
         return len(self.data)
@@ -190,7 +196,7 @@ class EHRDataset(Dataset):
     
 class EHRDatasetReadmission(Dataset):
     
-    def __init__(self, dataframe, conditional_files, save_folder, feature_types, max_len=64, tokenizer=None, run_type='train', nvisits=2):
+    def __init__(self, dataframe, label_visit, nvisits, conditional_files, save_folder, feature_types, max_len=64, tokenizer=None, run_type='train'):
         
        # Get conditional files
         dd_path = conditional_files['dd'] # diagnose-diagnose
@@ -224,8 +230,6 @@ class EHRDatasetReadmission(Dataset):
         self.use_m = feature_types['medications'] # Use medications
         self.use_p = feature_types['procedures'] # Use procedures
         
-        #data = dataframe[dataframe['hadm_id'].map(len) >= nvisits]
-        
         self.data = dataframe
         self.max_len = max_len
         self.tokenizer = tokenizer
@@ -233,15 +237,16 @@ class EHRDatasetReadmission(Dataset):
         self.nvisits = nvisits
         self.run_type = run_type
         self.save_folder = save_folder
+        self.label_visit = label_visit
         
         def save_dataset(patient_dict):
-            path = self.save_folder + '_readmission_{}_'.format(self.nvisits) + self.run_type
+            path = self.save_folder + '_readmission_labelvisit{}_trainvisits{}_'.format(self.label_visit, self.nvisits) + self.run_type
             save_file = open(path + '.pkl', 'wb')
             pickle.dump(patient_dict, save_file)
             save_file.close()
         
         def load_dataset():
-            path = self.save_folder + '_readmission_{}_'.format(self.nvisits) + self.run_type
+            path = self.save_folder + '_readmission_labelvisit{}_trainvisits{}_'.format(self.label_visit, self.nvisits) + self.run_type
             dataset_file = open(path + '.pkl', 'rb')
             dataset = pickle.load(dataset_file)
             dataset_file.close()
@@ -277,13 +282,13 @@ class EHRDatasetReadmission(Dataset):
                     adm_age.extend([str(int(age[i]))]*tot_len)
                     adm_gender.extend(gender*tot_len)
                     
-                labels = [int(lab[nvisits - 1])]
+                labels = [int(lab[self.label_visit - 1])]
                     
                 patient_records[patient_id] = [admission_input, adm_age, adm_gender, labels]
                 
             return patient_records
         
-        path = self.save_folder + '_readmission_{}_'.format(self.nvisits) + self.run_type + '.pkl'
+        path = self.save_folder + '_readmission_labelvisit{}_trainvisits{}_'.format(self.label_visit, self.nvisits) + self.run_type + '.pkl'
         if os.path.isfile(path):
             print("Loading data")
             records = load_dataset()
@@ -354,7 +359,7 @@ class EHRDatasetReadmission(Dataset):
 
 class EHRDatasetCodePrediction(Dataset):
     
-    def __init__(self, dataframe, conditional_files, labelvisit, save_folder, feature_types, max_len=64, tokenizer=None, run_type='train'):
+    def __init__(self, dataframe, conditional_files, train_visits, labelvisit, save_folder, feature_types, max_len=64, tokenizer=None, run_type='train'):
         
         
         # Get conditional files
@@ -396,16 +401,17 @@ class EHRDatasetCodePrediction(Dataset):
         self.run_type = run_type
         self.save_folder = save_folder
         self.labelvisit = labelvisit
+        self.train_visits = train_visits
         
         
         def save_dataset(patient_dict):
-            path = self.save_folder + '_nextvisit_{}_'.format(self.labelvisit) + self.run_type
+            path = self.save_folder + '_nextvisit_labelvisit{}_trainvisits{}_'.format(self.labelvisit, self.train_visits) + self.run_type
             save_file = open(path + '.pkl', 'wb')
             pickle.dump(patient_dict, save_file)
             save_file.close()
         
         def load_dataset():
-            path = self.save_folder + '_nextvisit_{}_'.format(self.labelvisit) + self.run_type
+            path = self.save_folder + '_nextvisit_labelvisit{}_trainvisits{}_'.format(self.labelvisit, self.train_visits) + self.run_type
             dataset_file = open(path + '.pkl', 'rb')
             dataset = pickle.load(dataset_file)
             dataset_file.close()
@@ -421,7 +427,7 @@ class EHRDatasetCodePrediction(Dataset):
                 admission_input, adm_age, adm_gender, labels = [], [], [], []
                 #NextVisit = self.NextVisit
                     
-                for i in range(self.labelvisit - 1):
+                for i in range(self.train_visits):
                     tot_len = 1
                     if self.use_d:
                         admission_input.extend(icd_codes[i])
@@ -445,7 +451,7 @@ class EHRDatasetCodePrediction(Dataset):
             return patient_records
         
         #path = '../data/pytorch_datasets/CodePrediction_' + self.run_type + '_' + str(self.NextVisit) + '.pkl'
-        path = self.save_folder + '_nextvisit_{}_'.format(self.labelvisit) + self.run_type + '.pkl'
+        path = self.save_folder + '_nextvisit_labelvisit{}_trainvisits{}_'.format(self.labelvisit, self.train_visits) + self.run_type + '.pkl'
         if os.path.isfile(path):
             print("Loading data")
             records = load_dataset()

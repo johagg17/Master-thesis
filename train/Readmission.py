@@ -30,7 +30,44 @@ def fix_length(data, visit_label):
     
     return df    
 
-def load_data(train_visits, data_name):
+def get_balanced_data(train, val, test, label_visit):
+    
+    train['visit_label'] = train['label'].apply(lambda x: x[label_visit - 1])
+    train_0= train[train['visit_label'] == 0]
+    train_1 = train[train['visit_label'] == 1]
+    
+    if len(train_0) > len(train_1):
+        train_0 = train_0.sample(len(train_1))
+    else:
+        train_1 = train_1.sample(len(train_0))
+        
+    train = pd.concat([train_0, train_1])
+    
+    val['visit_label'] = val['label'].apply(lambda x: x[label_visit - 1])
+    val_0= val[val['visit_label'] == 0]
+    val_1 = val[val['visit_label'] == 1]
+    if len(val_0) > len(val_1):
+        val_0 = val_0.sample(len(val_1))
+    else:
+        val_1 = val_1.sample(len(val_0))
+        
+    val = pd.concat([val_0, val_1])
+    
+    test['visit_label'] = test['label'].apply(lambda x: x[label_visit - 1])
+    test_0= test[test['visit_label'] == 0]
+    test_1 = test[test['visit_label'] == 1]
+    
+    if len(test_0) > len(test_1):
+        test_0 = test_0.sample(len(test_1))
+    else:
+        test_1 = test_1.sample(len(test_0))
+        
+    test = pd.concat([test_0, test_1])
+    
+    return train, val, test
+    
+    
+def load_data(label_visit, data_name, balance_data=False):
     
     path='../data/datasets/' + data_name
     
@@ -45,21 +82,21 @@ def load_data(train_visits, data_name):
     val = pd.read_parquet(path + 'val.parquet')
     test = pd.read_parquet(path + 'test.parquet')
     
-    train = train[train['hadm_id'].map(len) >= train_visits]
-    val = val[val['hadm_id'].map(len) >= train_visits]
-    test = test[test['hadm_id'].map(len) >= train_visits]
+    train = train[train['hadm_id'].map(len) >= label_visit]
+    val = val[val['hadm_id'].map(len) >= label_visit]
+    test = test[test['hadm_id'].map(len) >= label_visit]
     
-    train = fix_length(train, train_visits)
-    val = fix_length(val, train_visits)
-    test = fix_length(test, train_visits)
+    train = fix_length(train, label_visit)
+    val = fix_length(val, label_visit)
+    test = fix_length(test, label_visit)
     
-    all_data = pd.concat([train, val, test])
+    if balance_data:
+        train, val, test = get_balanced_data(train, val, test, label_visit)
     
-    voc_path = '../data/vocabularies/' + data_name
     return train, val, test
 
 
-def train_test_model(config, tokenizer, trainloader, testloader, valloader, tensorboarddir, num_gpus, path_to_model, save_model=False):
+def train_test_model(config, tokenizer, trainloader, testloader, valloader, tensorboarddir, num_gpus, path_to_model, save_path, save_model=False):
     
     
     trainer = pl.Trainer(
@@ -99,18 +136,23 @@ def train_test_model(config, tokenizer, trainloader, testloader, valloader, tens
     print("Avg_AUC {}".format(avg_auc*100))
     
     avg_aucpr = sum([ stats['AUCPR'] for stats in predictions ]) / len(predictions)
-    print("Avg_AUCPR".format(avg_aucpr*100))
+    print("Avg_AUCPR {}".format(avg_aucpr*100))
     
     if save_model:
         print("Saving model")
-        torch.save(model.state_dict(), PATH)
+        torch.save(model.state_dict(), save_path)
 
 def main():
     
-    dataset_name = 'Synthea/Small_cohorts/'
-    readmissionvisit = 3
-    train, val, test = load_data(readmissionvisit, dataset_name)
+    dataset_name = 'Synthea/Final_cohorts/'
+    readmissionvisit = 10
+    visits_to_train_on = 10
+    balanced_data = False # 
+    train, val, test = load_data(readmissionvisit, dataset_name, balanced_data)
     
+    print(len(train))
+    print(len(val))
+    print(len(test))
     
     feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
     if (feature_types['diagnosis'] and feature_types['medications']):
@@ -149,10 +191,10 @@ def main():
         'reg':0.1,
         'age':True,
         'gender':False,
-        'epochs':20,
+        'epochs':15,
     }
     
-    stats_path = '../data/datasets/Synthea/Small_cohorts/train_stats/'
+    stats_path = '../data/train_stats/Synthea/'
     condfiles = {'dd':stats_path + 'dd_cond_probs.empirical.p', 
                  'dp':stats_path + 'dp_cond_probs.empirical.p',
                  'dm':stats_path + 'dm_cond_probs.empirical.p',
@@ -165,19 +207,19 @@ def main():
                 }
     
     num_gpus = 8
-    folderpath = '../data/pytorch_datasets/Synthea/Small_cohorts/'
-    traind = EHRDatasetReadmission(train, nvisits=readmissionvisit, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_nextvisit')
-    vald = EHRDatasetReadmission(val, nvisits=readmissionvisit, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_nextvisit')
-    testd = EHRDatasetReadmission(test, nvisits=readmissionvisit, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_nextvisit')
+    folderpath = '../data/pytorch_datasets/' + dataset_name
+    traind = EHRDatasetReadmission(train, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_readmission_balanced{}'.format(balanced_data))
+    vald = EHRDatasetReadmission(val, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_readmission_balanced{}'.format(balanced_data))
+    testd = EHRDatasetReadmission(test, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_readmission_balanced{}'.format(balanced_data))
     
     trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True,num_workers=4*num_gpus)
     valloader = torch.utils.data.DataLoader(vald, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     
     tensorboarddir = '../logs/'
-    PATH = '../saved_models/MLM/BEHRT_Synthea'
-    
-    train_test_model(model_config, tokenizer, trainloader, testloader, valloader, tensorboarddir, num_gpus, PATH, save_model=False)
+    PATH = '../saved_models/MLM/BEHRT_synthea'
+    save_path = '../saved_models/Readmission/BEHRT_Synthea_visits{}_labelvisit{}_balanced{}'.format(readmissionvisit, visits_to_train_on, balanced_data)
+    train_test_model(model_config, tokenizer, trainloader, testloader, valloader, tensorboarddir, num_gpus, PATH, save_path, save_model=True)
     
     
 if __name__=='__main__':

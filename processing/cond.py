@@ -640,8 +640,7 @@ def main(argv):
    # pickle.dump(dx_map, open(output_path + '/dx_map.p', 'wb'), -1)
    # pickle.dump(proc_map, open(output_path + '/proc_map.p', 'wb'), -1)
 
-    stats_path = output_path + '/train_stats'
-    
+    stats_path = output_path + '/test' #stats_path = output_path + '/train_stats'
     count_conditional_prob_dp(seqex_list, stats_path)
     #train_seqex = add_sparse_prior_guide_dp(seqex_list, stats_path, max_num_codes=50)
     #create_patient_objects(train_seqex, input_path) 

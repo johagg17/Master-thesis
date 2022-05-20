@@ -123,7 +123,8 @@ def main():
     
     #dataset_name = 'Synthea/Small_cohorts/'
     dataset_name = 'MIMIC/'
-    labelvisit = 3
+    labelvisit = 8
+    visits_to_train_on = 7
     train, val, test = load_data(dataset_name, labelvisit)
     
     feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
@@ -150,8 +151,6 @@ def main():
     mlb = MultiLabelBinarizer(classes=list(tokenizer.getVoc('label').values()))
     mlb.fit([[each] for each in list(tokenizer.getVoc('label').values())])
     
-    
-    
     model_config = {
         'vocab_size': len(tokenizer.getVoc('code').keys()), # number of disease + symbols for word embedding
         'hidden_size': 288, #tune.choice([100, 150, 288]), #288, # word embedding and seg embedding hidden size
@@ -172,7 +171,7 @@ def main():
         'gender':False,
         'epochs':15,
     }
-    stats_path = '../data/datasets/Synthea/Small_cohorts/train_stats/'
+    stats_path = '../data/train_stats/Synthea/'
     condfiles = {'dd':stats_path + 'dd_cond_probs.empirical.p', 
                  'dp':stats_path + 'dp_cond_probs.empirical.p',
                  'dm':stats_path + 'dm_cond_probs.empirical.p',
@@ -188,9 +187,9 @@ def main():
     num_gpus = 8
     folderpath = '../data/pytorch_datasets/' + dataset_name
     
-    traind = EHRDatasetCodePrediction(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, labelvisit=labelvisit, save_folder=folderpath, tokenizer=tokenizer, run_type='train_nextvisit')
-    vald = EHRDatasetCodePrediction(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, labelvisit=labelvisit, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_nextvisit')
-    testd = EHRDatasetCodePrediction(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, labelvisit=labelvisit, save_folder=folderpath, conditional_files=condfiles, run_type='test_nextvisit')
+    traind = EHRDatasetCodePrediction(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, train_visits=visits_to_train_on,labelvisit=labelvisit, save_folder=folderpath, tokenizer=tokenizer, run_type='train_nextvisit')
+    vald = EHRDatasetCodePrediction(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, train_visits=visits_to_train_on,labelvisit=labelvisit, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_nextvisit')
+    testd = EHRDatasetCodePrediction(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, train_visits=visits_to_train_on, labelvisit=labelvisit, save_folder=folderpath, conditional_files=condfiles, run_type='test_nextvisit')
     
    # num_train_examples = 1000
     
@@ -206,8 +205,8 @@ def main():
     testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     
     #PATH = '../saved_models/MLM/BEHRT_Synthea'
-    PATH = '../saved_models/MLM/BEHRT_MIMIC'
-    save_path = '../saved_models/NextxVisit/BEHRT_MIMIC_NextVisit{}'.format(labelvisit)
+    PATH = '../saved_models/MLM/BEHRT_mimic'
+    save_path = '../saved_models/NextxVisit/BEHRT_mimic_NextVisit{}_trainvisits{}_'.format(labelvisit, visits_to_train_on)
     train_test_model(model_config, tokenizer, mlb, trainloader, testloader, valloader, tensorboarddir, num_gpus, PATH, save_path, save_model=True)
     
 if __name__=='__main__':

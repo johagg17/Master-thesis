@@ -15,7 +15,7 @@ optim_param = {
 }
 
 train_params = {
-    'batch_size': 32,
+    'batch_size': 256,
     'use_cuda': True,
     'max_len_seq': global_params['max_seq_len'],
     'device': 'cuda' #change this to run on cuda #'cuda:0'
@@ -79,7 +79,7 @@ def train_test_model(config, PATH, trainloader, testloader, valloader, tensorboa
             gpus=num_gpus,
             plugins='fsdp',
             logger=pl.loggers.TensorBoardLogger(save_dir=tensorboarddir),
-            callbacks=[pl.callbacks.TQDMProgressBar()], #progress.ProgressBar()], 
+            #callbacks=[pl.callbacks.TQDMProgressBar()], #progress.ProgressBar()], 
             progress_bar_refresh_rate=1,
             weights_summary=None, # Can be None, top or full
             num_sanity_val_steps=10,
@@ -120,21 +120,22 @@ def main():
     train, val, test = load_data(dataset_name)
     
     feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
-    if (feature_types['diagnosis'] and feature_types['medications']):
-        print("Do only use diagnosis")
+    if (feature_types['diagnosis'] and feature_types['medications'] and not feature_types['procedures']):
+        print("Use diagnosis and meds")
         code_voc = 'MLM_diagnosmedcodes.npy'
         age_voc = 'MLM_age.npy'
         
     elif (feature_types['diagnosis'] and not feature_types['medications']):
+        print("Use only diagnosis")
         code_voc = 'MLM_diagnoscodes.npy'
         age_voc = 'MLM_age.npy'
         
     else:
-        code_voc = 'MLM_diagnosmedproccodes.npy'
+        print("Use all features")
+        code_voc = 'MLM_diagnosproccodes.npy'
         age_voc = 'MLM_age.npy'
-        
-   # print('../data/vocabularies/' + dataset_name + code_voc)    
-    #print(np.load('../data/vocabularies/' + dataset_name + code_voc, allow_pickle=True))
+    
+    
     files = {'code':'../data/vocabularies/' + dataset_name + code_voc,
              'age':'../data/vocabularies/' + dataset_name + age_voc,
             }
@@ -157,10 +158,10 @@ def main():
         'reg':0.5,
         'age':True,
         'gender':False,
-        'epochs':40,
+        'epochs':20,
     }
     
-    stats_path = '../data/datasets/Synthea/Small_cohorts/train_stats/'
+    stats_path = '../data/train_stats/Synthea/'
     condfiles = {'dd':stats_path + 'dd_cond_probs.empirical.p', 
                  'dp':stats_path + 'dp_cond_probs.empirical.p',
                  'dm':stats_path + 'dm_cond_probs.empirical.p',
@@ -172,7 +173,6 @@ def main():
                  'mp':stats_path + 'mp_cond_probs.empirical.p',
                 }
     
-    feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
     num_gpus = 8
     folderpath = '../data/pytorch_datasets/' + dataset_name
     traind = EHRDataset(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_diagnosis')
@@ -186,7 +186,7 @@ def main():
     
     
     tensorboarddir = '../logs/'
-    PATH = '../saved_models/MLM/BEHRT_MIMIC_Large'
+    PATH = '../saved_models/MLM/BEHRT_mimic'
     
     trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     valloader = torch.utils.data.DataLoader(vald, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)

@@ -159,9 +159,18 @@ def create_prior_guide(code_maps, input_ids):
     
     dd, dp, dm, pp, pd, pm, mm, md, mp = code_maps
     prior_guide = []
+    visit_1 = 0
     for token1 in input_ids:
+        if token1 == '[SEP]':
+            visit_1+=1
+        visit_2 = 0
         for token2 in input_ids:
-            comb = str(token1) + ',' + str(token2)
+            if token2 == '[SEP]':
+                visit_2 += 1
+                
+            visitdiff = abs(visit_2 - visit_1)
+            
+            comb = str(visitdiff) + ', ' + str(token1) + ',' + str(token2)
             if token1 == token2:
                 value = 1   
             elif ((token1 in set(['[CLS]', '[SEP]', '[PAD]'])) or  (token2 in set(['[CLS]', '[SEP]', '[PAD]']))):

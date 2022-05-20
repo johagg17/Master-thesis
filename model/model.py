@@ -142,12 +142,11 @@ class BertEmbeddings(nn.Module):
             for idx in np.arange(1, hidden_size, step=2):
                 lookup_table[pos, idx] = odd_code(pos, idx)
 
-        return torch.from_numpy(lookup_table)
-    
+        return torch.from_numpy(lookup_table)      
 
-class BertCustomAttention(nn.Module):
+class BertCustomSelfAttention(nn.Module):
     def __init__(self, config):
-        super(BertCustomAttention, self).__init__()
+        super(BertCustomSelfAttention, self).__init__()
         self.num_attention_heads = config.num_attention_heads
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
@@ -176,8 +175,7 @@ class BertCustomAttention(nn.Module):
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)    
         return context_layer, attention_scores
-        
-        
+    
 class BertSelfAttention(nn.Module):
     def __init__(self, config):
         super(BertSelfAttention, self).__init__()
@@ -226,9 +224,7 @@ class BertSelfAttention(nn.Module):
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
         return context_layer, attention_probs
-
-
-
+    
 class BertSelfOutput(nn.Module):
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
@@ -242,7 +238,17 @@ class BertSelfOutput(nn.Module):
         hidden_states = self.LayerNorm(hidden_states + input_tensor)
         return hidden_states
 
+class BertCustomAttention(nn.Module):
+    def __init__(self, config):
+        super(BertCustomAttention, self).__init__()
+        self.customatt = BertCustomSelfAttention(config)
+        self.output = BertSelfOutput(config)
 
+    def forward(self, hidden_states, attention_mask, prior_guide):
+        self_output, attention_score = self.customatt(hidden_states, attention_mask, prior_guide)
+        attention_output = self.output(self_output, hidden_states)
+        return attention_output, attention_score    
+    
 class BertAttention(nn.Module):
     def __init__(self, config):
         super(BertAttention, self).__init__()
@@ -296,7 +302,6 @@ class BertLayer(nn.Module):
     def forward(self, hidden_states, attention_mask, prior_guide):
         attention_score = None
         if ((self.use_prior) and (self.layer_idx == 0)):
-            print("Hello")
             attention_output, attention_score = self.customAttention(hidden_states, attention_mask, prior_guide)
         else:
             attention_output, attention_score = self.attention(hidden_states, attention_mask)
@@ -544,8 +549,41 @@ class BertOnlyMLMHead(nn.Module):
     def forward(self, sequence_output):
         prediction_scores = self.predictions(sequence_output)
         return prediction_scores
-    
-    
+
+
+class BertPreTrainingHeads(nn.Module):
+    def __init__(self, config, bert_model_embedding_weights):
+        super(BertPreTrainingHeads, self).__init__()
+        self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
+        self.seq_relationship = nn.Linear(config.hidden_size, 2)
+
+    def forward(self, sequence_output, pooled_output):
+        prediction_scores = self.predictions(sequence_output)
+        seq_relationship_score = self.seq_relationship(pooled_output)
+        return prediction_scores, seq_relationship_score
+        
+        
+
+class BertForPreTraining(PreTrainedBertModel):
+    def __init__(self, config):
+        super(BertForPreTraining, self).__init__(config)
+        self.bert = BertModel(config)
+        self.cls = BertPreTrainingHeads(config, self.bert.embeddings.word_embeddings.weight)
+        
+    def forward(self, input_ids, age_ids=None, gender_ids=None, seg_ids=None, posi_ids=None, attention_mask=None, masked_labels=None, visit_type_label=None, prior_guide=None, output_all_encoded_layers=False):
+        sequence_output, pooled_output, all_attention_outputs = self.bert(input_ids, age_ids, gender_ids, seg_ids, posi_ids, attention_mask, prior_guide=prior_guide, output_all_encoded_layers=output_all_encoded_layers)
+        prediction_scores, seq_relationship_score = self.cls(sequence_output, pooled_output)
+        
+        if masked_labels is not None and visit_type_label is not None:
+            loss_fct = CrossEntropyLoss(ignore_index=-1)
+            masked_lm_loss = loss_fct(prediction_scores.view(-1, self.config.vocab_size), masked_lm_labels.view(-1))
+            #next_sentence_loss = loss_fct(seq_relationship_score.view(-1, config.), next_sentence_label.view(-1))
+            total_loss = masked_lm_loss + next_sentence_loss
+            return total_loss
+        else:
+            return prediction_scores, seq_relationship_score
+        
+        
 class BertForMaskedLM(PreTrainedBertModel):
     def __init__(self, config):
         super(BertForMaskedLM, self).__init__(config)

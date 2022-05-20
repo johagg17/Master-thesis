@@ -234,7 +234,7 @@ class TrainerMLM(pl.LightningModule):
         return precision
     
     def make_prediction(self, batch):
-        age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide = batch
+        age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide, _ = batch
         
         loss, pred, labels, attentions, encoded_outputs = self.forward(age_ids, gender_ids, input_ids, posi_ids, segment_ids, attmask, labels, prior_guide)
         #if not self.encoded_outputs:
@@ -255,6 +255,7 @@ class TrainerMLM(pl.LightningModule):
             nattentions = len(attentions)
             # attention shape: (batch size, seqlength, hiddendim)
             epsilon = 1e-12
+            
             for i in range(1, nattentions):
                 log_p = torch.log(attentions[i-1] + epsilon)
                 log_q = torch.log(attentions[i] + epsilon)
