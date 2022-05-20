@@ -32,18 +32,19 @@ def write_voc(data, path):
         
     # Write with medication codes
     med_codes = np.concatenate(np.concatenate(data['medication_code'].tolist(), axis=0), axis=0)
-    diag_codes = np.append(diag_codes, med_codes)
+    diag_med_codes = np.append(diag_codes, med_codes)
     if not os.path.isfile(path + 'MLM_diagnosmedcodes.npy'):
         print("Creating vocabulary for diagnose and medication codes")
-        np.save(path + 'MLM_diagnosmedcodes.npy', diag_codes)
+        np.save(path + 'MLM_diagnosmedcodes.npy', diag_med_codes)
     
     # Write with procedure codes
     proc_codes = np.concatenate(np.concatenate(data['procedure_code'].tolist(), axis=0), axis=0)
-    diag_codes = np.append(diag_codes, proc_codes)
+    proc_codes = [proc for proc in proc_codes if proc != -1]
+    diag_med_proc_codes = np.append(diag_med_codes, proc_codes)
     
     if not os.path.isfile(path + 'MLM_diagnosproccodes.npy'):
         print("Creating vocabulary for diagnose, medication and procedure codes")
-        np.save(path + 'MLM_diagnosproccodes.npy', diag_codes)
+        np.save(path + 'MLM_diagnosproccodes.npy', diag_med_proc_codes)
     
     ages = np.concatenate(data['age'].tolist(), axis=0)
     if not os.path.isfile(path + 'MLM_age.npy'):
@@ -116,10 +117,10 @@ def train_test_model(config, PATH, trainloader, testloader, valloader, tensorboa
     
 def main():
     
-    dataset_name = 'MIMIC/'
+    dataset_name = 'Synthea/Final_cohorts/'
     train, val, test = load_data(dataset_name)
     
-    feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
+    feature_types = {'diagnosis':True, 'medications':True, 'procedures':True}
     if (feature_types['diagnosis'] and feature_types['medications'] and not feature_types['procedures']):
         print("Use diagnosis and meds")
         code_voc = 'MLM_diagnosmedcodes.npy'
@@ -154,10 +155,10 @@ def main():
         'intermediate_size': 512, # the size of the "intermediate" layer in the transformer encoder
         'hidden_act': 'gelu', # The non-linear activation function in the encoder and the pooler "gelu", 'relu', 'swish' are supported
         'initializer_range': 0.02, # parameter weight initializer range
-        'use_prior':False,
-        'reg':0.5,
+        'use_prior':True,
+        'reg':0.1,
         'age':True,
-        'gender':False,
+        'gender':True,
         'epochs':20,
     }
     
@@ -175,9 +176,9 @@ def main():
     
     num_gpus = 8
     folderpath = '../data/pytorch_datasets/' + dataset_name
-    traind = EHRDataset(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_diagnosis')
-    vald = EHRDataset(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_diagnosis')
-    testd = EHRDataset(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_diagnosis')
+    traind = EHRDataset(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_diagnosis_meds_procedures')
+    vald = EHRDataset(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_diagnosis_meds_procedures')
+    testd = EHRDataset(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_diagnosis_meds_procedures')
     
   # num_train_examples = 1000  
   #  traind = torch.utils.data.Subset(traind, np.arange(num_train_examples))
@@ -186,7 +187,7 @@ def main():
     
     
     tensorboarddir = '../logs/'
-    PATH = '../saved_models/MLM/BEHRT_mimic'
+    PATH = '../saved_models/MLM/CondBEHRT_synthea'
     
     trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     valloader = torch.utils.data.DataLoader(vald, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)

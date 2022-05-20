@@ -150,19 +150,19 @@ def main():
     balanced_data = False # 
     train, val, test = load_data(readmissionvisit, dataset_name, balanced_data)
     
-    print(len(train))
-    print(len(val))
-    print(len(test))
+    #print(len(train))
+    #print(len(val))
+    #print(len(test))
     
-    feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
-    if (feature_types['diagnosis'] and feature_types['medications']):
+    feature_types = {'diagnosis':True, 'medications':True, 'procedures':True}
+    if (feature_types['diagnosis'] and feature_types['medications'] and not feature_types['procedures']):
         print("Do only use diagnosis")
         code_voc = 'MLM_diagnosmedcodes.npy'
         
     elif (feature_types['diagnosis'] and not feature_types['medications']):
         code_voc = 'MLM_diagnoscodes.npy'
     else:
-        code_voc = 'MLM_diagnosmedproccodes.npy'
+        code_voc = 'MLM_diagnosproccodes.npy'
         
         
     age_voc = 'MLM_age.npy'
@@ -187,10 +187,10 @@ def main():
         'intermediate_size': 512, # the size of the "intermediate" layer in the transformer encoder
         'hidden_act': 'gelu', # The non-linear activation function in the encoder and the pooler "gelu", 'relu', 'swish' are supported
         'initializer_range': 0.02, # parameter weight initializer range
-        'use_prior':False,
+        'use_prior':True,
         'reg':0.1,
         'age':True,
-        'gender':False,
+        'gender':True,
         'epochs':15,
     }
     
@@ -208,17 +208,17 @@ def main():
     
     num_gpus = 8
     folderpath = '../data/pytorch_datasets/' + dataset_name
-    traind = EHRDatasetReadmission(train, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_readmission_balanced{}'.format(balanced_data))
-    vald = EHRDatasetReadmission(val, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_readmission_balanced{}'.format(balanced_data))
-    testd = EHRDatasetReadmission(test, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_readmission_balanced{}'.format(balanced_data))
+    traind = EHRDatasetReadmission(train, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_readmission_dmp_balanced{}'.format(balanced_data))
+    vald = EHRDatasetReadmission(val, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_readmission_dmp_balanced{}'.format(balanced_data))
+    testd = EHRDatasetReadmission(test, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_readmission_dmp_balanced{}'.format(balanced_data))
     
     trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True,num_workers=4*num_gpus)
     valloader = torch.utils.data.DataLoader(vald, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     
     tensorboarddir = '../logs/'
-    PATH = '../saved_models/MLM/BEHRT_synthea'
-    save_path = '../saved_models/Readmission/BEHRT_Synthea_visits{}_labelvisit{}_balanced{}'.format(readmissionvisit, visits_to_train_on, balanced_data)
+    PATH = '../saved_models/MLM/CondBEHRT_synthea'
+    save_path = '../saved_models/Readmission/CondBEHRT_Synthea_visits{}_labelvisit{}_balanced{}'.format(readmissionvisit, visits_to_train_on, balanced_data)
     train_test_model(model_config, tokenizer, trainloader, testloader, valloader, tensorboarddir, num_gpus, PATH, save_path, save_model=True)
     
     

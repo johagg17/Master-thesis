@@ -179,24 +179,34 @@ def create_prior_guide(code_maps, input_ids):
                 value = 0
             else:
                 if comb in dd:
+                    #print("Found in dd")
                     value = dd[comb]
                 elif comb in dp:
+                    #print("Found in dp")
                     value = dp[comb]
                 elif comb in dm:
+                    #print("Found in dm")
                     value = dm[comb]    
                 elif comb in pp:
+                    #print("Found in pp")
                     value = pp[comb]
                 elif comb in pd:
+                    #print("Found in pd")
                     value = pd[comb]
                 elif comb in pm:
+                    #print("Found in pm")
                     value = pm[comb]
                 elif comb in mm:
+                    #print("Found in mm")
                     value = mm[comb]
                 elif comb in md:
+                    #print("Found in md")
                     value = md[comb]
                 elif comb in mp:
+                    #print("Found in mp")
                     value = mp[comb]
                 else:
+                    #print("not found")
                     value = 0
             prior_guide.append(value)
             

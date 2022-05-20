@@ -274,7 +274,7 @@ class EHRDatasetReadmission(Dataset):
                         admission_input.extend(ndc_codes[i])
                         tot_len += len(ndc_codes[i])
                     
-                    if ((self.use_p) and (procedure_codes[i] != -1)):
+                    if ((self.use_p) and (not (-1 in procedure_codes[i]))):
                         admission_input.extend(procedure_codes[i])
                         tot_len += len(procedure_codes[i])
                         
