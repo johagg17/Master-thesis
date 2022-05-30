@@ -122,20 +122,20 @@ def main():
     
     
     #dataset_name = 'Synthea/Small_cohorts/'
-    dataset_name = 'MIMIC/'
-    labelvisit = 8
-    visits_to_train_on = 7
+    dataset_name = 'Synthea/Final_cohorts/'
+    labelvisit = 5
+    visits_to_train_on = 4
     train, val, test = load_data(dataset_name, labelvisit)
     
-    feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
-    if (feature_types['diagnosis'] and feature_types['medications']):
+    feature_types = {'diagnosis':True, 'medications':True, 'procedures':True}
+    if (feature_types['diagnosis'] and feature_types['medications'] and not feature_types['procedures']):
         print("Do only use diagnosis")
         code_voc = 'MLM_diagnosmedcodes.npy'
         
     elif (feature_types['diagnosis'] and not feature_types['medications']):
         code_voc = 'MLM_diagnoscodes.npy'
     else:
-        code_voc = 'MLM_diagnosmedproccodes.npy'
+        code_voc = 'MLM_diagnosproccodes.npy'
         
         
     age_voc = 'MLM_age.npy'
@@ -165,10 +165,10 @@ def main():
         'intermediate_size': 512, # the size of the "intermediate" layer in the transformer encoder
         'hidden_act': 'gelu', # The non-linear activation function in the encoder and the pooler "gelu", 'relu', 'swish' are supported
         'initializer_range': 0.02, # parameter weight initializer range
-        'use_prior':False,
+        'use_prior':True,
         'reg':0.1,
         'age':True,
-        'gender':False,
+        'gender':True,
         'epochs':15,
     }
     stats_path = '../data/train_stats/Synthea/'
@@ -183,13 +183,12 @@ def main():
                  'mp':stats_path + 'mp_cond_probs.empirical.p',
                 }
     
-    feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
     num_gpus = 8
     folderpath = '../data/pytorch_datasets/' + dataset_name
     
-    traind = EHRDatasetCodePrediction(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, train_visits=visits_to_train_on,labelvisit=labelvisit, save_folder=folderpath, tokenizer=tokenizer, run_type='train_nextvisit')
-    vald = EHRDatasetCodePrediction(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, train_visits=visits_to_train_on,labelvisit=labelvisit, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_nextvisit')
-    testd = EHRDatasetCodePrediction(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, train_visits=visits_to_train_on, labelvisit=labelvisit, save_folder=folderpath, conditional_files=condfiles, run_type='test_nextvisit')
+    traind = EHRDatasetCodePrediction(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, train_visits=visits_to_train_on,labelvisit=labelvisit, save_folder=folderpath, tokenizer=tokenizer, run_type='train_dmp_nextvisit')
+    vald = EHRDatasetCodePrediction(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, train_visits=visits_to_train_on,labelvisit=labelvisit, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_dmp_nextvisit')
+    testd = EHRDatasetCodePrediction(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, train_visits=visits_to_train_on, labelvisit=labelvisit, save_folder=folderpath, conditional_files=condfiles, run_type='test_dmp_nextvisit')
     
    # num_train_examples = 1000
     
@@ -205,8 +204,8 @@ def main():
     testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     
     #PATH = '../saved_models/MLM/BEHRT_Synthea'
-    PATH = '../saved_models/MLM/BEHRT_mimic'
-    save_path = '../saved_models/NextxVisit/BEHRT_mimic_NextVisit{}_trainvisits{}_'.format(labelvisit, visits_to_train_on)
+    PATH = '../saved_models/MLM/CondBEHRT_synthea'
+    save_path = '../saved_models/NextxVisit/CondBEHRT_dmp_synthea_NextVisit{}_trainvisits{}_'.format(labelvisit, visits_to_train_on)
     train_test_model(model_config, tokenizer, mlb, trainloader, testloader, valloader, tensorboarddir, num_gpus, PATH, save_path, save_model=True)
     
 if __name__=='__main__':

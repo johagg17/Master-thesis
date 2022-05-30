@@ -106,8 +106,9 @@ class EHRDataset(Dataset):
                         
                     #print(procedure_codes[i])
                     if ((self.use_p) and (not (-1 in procedure_codes[i]))):
-                        admission_input.extend(procedure_codes[i])
-                        tot_len += len(procedure_codes[i])
+                        if not ('-1' in procedure_codes[i]): 
+                            admission_input.extend(procedure_codes[i])
+                            tot_len += len(procedure_codes[i])
                         
                     admission_input.extend(['[SEP]'])
                     adm_age.extend([str(int(age[i]))]*tot_len)
@@ -275,8 +276,9 @@ class EHRDatasetReadmission(Dataset):
                         tot_len += len(ndc_codes[i])
                     
                     if ((self.use_p) and (not (-1 in procedure_codes[i]))):
-                        admission_input.extend(procedure_codes[i])
-                        tot_len += len(procedure_codes[i])
+                        if not ('-1' in procedure_codes[i]): 
+                            admission_input.extend(procedure_codes[i])
+                            tot_len += len(procedure_codes[i])
                         
                     admission_input.extend(['[SEP]'])
                     adm_age.extend([str(int(age[i]))]*tot_len)
@@ -437,9 +439,10 @@ class EHRDatasetCodePrediction(Dataset):
                         admission_input.extend(ndc_codes[i])
                         tot_len += len(ndc_codes[i])
                     
-                    if ((self.use_p) and (procedure_codes[i] != -1)):
-                        admission_input.extend(procedure_codes[i])
-                        tot_len += len(procedure_codes[i])
+                    if ((self.use_p) and (not (-1 in procedure_codes[i]))):
+                        if not ('-1' in procedure_codes[i]): 
+                            admission_input.extend(procedure_codes[i])
+                            tot_len += len(procedure_codes[i])
                         
                     admission_input.extend(['[SEP]'])
                     adm_age.extend([str(int(age[i]))]*tot_len)

@@ -144,7 +144,7 @@ def train_test_model(config, tokenizer, trainloader, testloader, valloader, tens
 
 def main():
     
-    dataset_name = 'Synthea/Final_cohorts/'
+    dataset_name = 'MIMIC/'#'Synthea/Final_cohorts/'
     readmissionvisit = 10
     visits_to_train_on = 10
     balanced_data = False # 
@@ -154,7 +154,7 @@ def main():
     #print(len(val))
     #print(len(test))
     
-    feature_types = {'diagnosis':True, 'medications':True, 'procedures':True}
+    feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
     if (feature_types['diagnosis'] and feature_types['medications'] and not feature_types['procedures']):
         print("Do only use diagnosis")
         code_voc = 'MLM_diagnosmedcodes.npy'
@@ -194,7 +194,7 @@ def main():
         'epochs':15,
     }
     
-    stats_path = '../data/train_stats/Synthea/'
+    stats_path = '../data/train_stats/MIMIC2/'
     condfiles = {'dd':stats_path + 'dd_cond_probs.empirical.p', 
                  'dp':stats_path + 'dp_cond_probs.empirical.p',
                  'dm':stats_path + 'dm_cond_probs.empirical.p',
@@ -208,17 +208,17 @@ def main():
     
     num_gpus = 8
     folderpath = '../data/pytorch_datasets/' + dataset_name
-    traind = EHRDatasetReadmission(train, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_readmission_dmp_balanced{}'.format(balanced_data))
-    vald = EHRDatasetReadmission(val, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_readmission_dmp_balanced{}'.format(balanced_data))
-    testd = EHRDatasetReadmission(test, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_readmission_dmp_balanced{}'.format(balanced_data))
+    traind = EHRDatasetReadmission(train, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_readmission_d_balanced{}'.format(balanced_data))
+    vald = EHRDatasetReadmission(val, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_readmission_d_balanced{}'.format(balanced_data))
+    testd = EHRDatasetReadmission(test, label_visit=readmissionvisit, nvisits=visits_to_train_on, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_readmission_d_balanced{}'.format(balanced_data))
     
     trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True,num_workers=4*num_gpus)
     valloader = torch.utils.data.DataLoader(vald, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     
     tensorboarddir = '../logs/'
-    PATH = '../saved_models/MLM/CondBEHRT_synthea'
-    save_path = '../saved_models/Readmission/CondBEHRT_Synthea_visits{}_labelvisit{}_balanced{}'.format(readmissionvisit, visits_to_train_on, balanced_data)
+    PATH = '../saved_models/MLM/CondBEHRT_d_mimic'
+    save_path = '../saved_models/Readmission/CondBEHRT_d_mimic_visits{}_labelvisit{}_balanced{}'.format(readmissionvisit, visits_to_train_on, balanced_data)
     train_test_model(model_config, tokenizer, trainloader, testloader, valloader, tensorboarddir, num_gpus, PATH, save_path, save_model=True)
     
     

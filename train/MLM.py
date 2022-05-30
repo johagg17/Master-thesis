@@ -39,7 +39,8 @@ def write_voc(data, path):
     
     # Write with procedure codes
     proc_codes = np.concatenate(np.concatenate(data['procedure_code'].tolist(), axis=0), axis=0)
-    proc_codes = [proc for proc in proc_codes if proc != -1]
+    proc_codes = [proc for proc in proc_codes if str(proc) != '-1']
+   # print(proc_codes)
     diag_med_proc_codes = np.append(diag_med_codes, proc_codes)
     
     if not os.path.isfile(path + 'MLM_diagnosproccodes.npy'):
@@ -117,23 +118,36 @@ def train_test_model(config, PATH, trainloader, testloader, valloader, tensorboa
     
 def main():
     
-    dataset_name = 'Synthea/Final_cohorts/'
+    '''Ändra directoryn för vilken data du vill använda: 
+        Synthea: Synthea/Final_cohorts/,
+        MIMIC: MIMIC/
+    '''
+    dataset_name = 'MIMIC/'#'Synthea/Final_cohorts/' 
     train, val, test = load_data(dataset_name)
     
+    
+    '''
+        feature_types: Vilka features ska användas under träningen?
+        
+        Dessa kombinationer är tillåtna: 
+        1. D->M->P
+        2. D->M
+        3. D
+    
+    '''
     feature_types = {'diagnosis':True, 'medications':True, 'procedures':True}
     if (feature_types['diagnosis'] and feature_types['medications'] and not feature_types['procedures']):
         print("Use diagnosis and meds")
-        code_voc = 'MLM_diagnosmedcodes.npy'
+        code_voc = 'MLM_diagnosmedcodes.npy' # Voc för diagnos och meds
         age_voc = 'MLM_age.npy'
         
     elif (feature_types['diagnosis'] and not feature_types['medications']):
         print("Use only diagnosis")
-        code_voc = 'MLM_diagnoscodes.npy'
+        code_voc = 'MLM_diagnoscodes.npy' # Voc för endast diagnoser
         age_voc = 'MLM_age.npy'
-        
     else:
         print("Use all features")
-        code_voc = 'MLM_diagnosproccodes.npy'
+        code_voc = 'MLM_diagnosproccodes.npy' # Voc för diagnoser, procedures, medications
         age_voc = 'MLM_age.npy'
     
     
@@ -155,14 +169,14 @@ def main():
         'intermediate_size': 512, # the size of the "intermediate" layer in the transformer encoder
         'hidden_act': 'gelu', # The non-linear activation function in the encoder and the pooler "gelu", 'relu', 'swish' are supported
         'initializer_range': 0.02, # parameter weight initializer range
-        'use_prior':True,
-        'reg':0.1,
+        'use_prior':True, # Om prior values ska användas eller inte
+        'reg':0.1, # Regularization term för prior
         'age':True,
         'gender':True,
         'epochs':20,
     }
     
-    stats_path = '../data/train_stats/Synthea/'
+    stats_path = '../data/train_stats/MIMIC2/' # Path till conditional values, om mimic körs, byt Synthea mot MIMIC
     condfiles = {'dd':stats_path + 'dd_cond_probs.empirical.p', 
                  'dp':stats_path + 'dp_cond_probs.empirical.p',
                  'dm':stats_path + 'dm_cond_probs.empirical.p',
@@ -176,9 +190,9 @@ def main():
     
     num_gpus = 8
     folderpath = '../data/pytorch_datasets/' + dataset_name
-    traind = EHRDataset(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_diagnosis_meds_procedures')
-    vald = EHRDataset(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_diagnosis_meds_procedures')
-    testd = EHRDataset(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_diagnosis_meds_procedures')
+    traind = EHRDataset(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_dmp')
+    vald = EHRDataset(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_dmp')
+    testd = EHRDataset(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_dmp')
     
   # num_train_examples = 1000  
   #  traind = torch.utils.data.Subset(traind, np.arange(num_train_examples))
@@ -187,7 +201,7 @@ def main():
     
     
     tensorboarddir = '../logs/'
-    PATH = '../saved_models/MLM/CondBEHRT_synthea'
+    PATH = '../saved_models/MLM/CondBEHRT_mimic' # Pathen som modellen ska sparas
     
     trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     valloader = torch.utils.data.DataLoader(vald, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
