@@ -99,7 +99,7 @@ def get_conf(tokenizer):
     return model_config
     
     
-def main(dataset_name):
+def main(dataset_name, modelname):
     
     nfolds = 3
     
@@ -123,8 +123,8 @@ def main(dataset_name):
                  'age':'../data/vocabularies/' + dataset_name + '/Final_cohorts/' +  age_voc
                 }
     else:
-        files = {'code':'../data/vocabularies/' + dataset_name + code_voc,
-                 'age':'../data/vocabularies/' + dataset_name +  age_voc
+        files = {'code':'../data/vocabularies/' + dataset_name + '/' + code_voc,
+                 'age':'../data/vocabularies/' + dataset_name +  '/' + age_voc
                 }
         
     
@@ -145,37 +145,40 @@ def main(dataset_name):
                 }
     
     num_gpus = 8
-    visitlab = 1
+    visitlab = 10
+    #foldnr = 2
     
-    for fold_idx in range(nfolds):
+    #for fold_idx in range(nfolds):
         
-        current_fold = fold_idx + 1
-        
-        folderpath = '../data/cross_val/' + dataset_name + '/readmission_visit{}/fold{}'.format(visitlab, current_fold)
-        
-        textfilepath = '../data/cross_val/' + dataset_name + '/readmission_visit{}/fold{}'.format(visitlab, current_fold)
-        
-        train = pd.read_parquet(folderpath+ '/train.parquet')
-        test = pd.read_parquet(folderpath + '/test.parquet')
-        
-        tokenizer = EHRTokenizer(task='readmission', filenames=files)
-        
-        config = get_conf(tokenizer)
-        
-        traind = EHRDatasetReadmission(train, label_visit=visitlab, nvisits=visitlab, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_readmission_d')
-        
-        testd = EHRDatasetReadmission(test, label_visit=visitlab, nvisits=visitlab, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_readmission_d')
-    
-        trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True,num_workers=4*num_gpus)
-        testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
-    
-        tensorboarddir = '../logs/'
-        modelname = 'CondBEHRT_d'
-        PATH = '../saved_models/MLM/{}_mimic'.format(modelname)
-        save_path='../saved_models/Readmission/{}_mimic_visits{}_labelvisit{}_fold{}'.format(modelname, visitlab, visitlab, current_fold)
-        train_test_model(config, tokenizer, trainloader, testloader, modelname, tensorboarddir, num_gpus, PATH, save_path, textfilepath, save_model=True)
+    #current_fold = fold_idx + 1
+    current_fold = 3
+
+    folderpath = '../data/cross_val/' + dataset_name + '/readmission_visit{}/fold{}'.format(visitlab, current_fold)
+
+    textfilepath = '../data/cross_val/' + dataset_name + '/readmission_visit{}/fold{}'.format(visitlab, current_fold)
+
+    train = pd.read_parquet(folderpath+ '/train.parquet')
+    test = pd.read_parquet(folderpath + '/test.parquet')
+
+    tokenizer = EHRTokenizer(task='readmission', filenames=files)
+
+    config = get_conf(tokenizer)
+
+    traind = EHRDatasetReadmission(train, label_visit=visitlab, nvisits=visitlab, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_readmission_d')
+
+    testd = EHRDatasetReadmission(test, label_visit=visitlab, nvisits=visitlab, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_readmission_d')
+
+    trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True,num_workers=4*num_gpus)
+    testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
+
+    tensorboarddir = '../logs/'
+    PATH = '../saved_models/MLM/{}_synthea'.format(modelname)
+    save_path='../saved_models/Readmission/{}_synthea_visits{}_labelvisit{}_fold{}'.format(modelname, visitlab, visitlab, current_fold)
+    train_test_model(config, tokenizer, trainloader, testloader, modelname, tensorboarddir, num_gpus, PATH, save_path, textfilepath, save_model=True)
         
 
 if __name__=='__main__':
-    dataname = 'MIMIC'
-    main(dataname)
+    dataname = 'Synthea' #'MIMIC'
+    modelname = 'CondBEHRT_-p-m' #'CondBEHRT_-p-m' #'CondBEHRT'
+    
+    main(dataname, modelname)
