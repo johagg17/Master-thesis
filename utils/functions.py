@@ -171,9 +171,11 @@ def create_prior_guide(code_maps, input_ids):
             visitdiff = abs(visit_2 - visit_1)
             
             comb = str(visitdiff) + ', ' + str(token1) + ',' + str(token2)
+            
+            #print("Comb: {}".format(comb))
             if token1 == token2:
                 value = 1   
-            elif ((token1 in set(['[CLS]', '[SEP]', '[PAD]'])) or  (token2 in set(['[CLS]', '[SEP]', '[PAD]']))):
+            elif ((token1 in set(['[CLS]', '[SEP]', '[PAD]'])) or (token2 in set(['[CLS]', '[SEP]', '[PAD]']))):
                 value = 0
             elif ((token1 == '[MASK]') or (token2 == '[MASK]')):
                 value = 0

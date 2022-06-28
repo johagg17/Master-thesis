@@ -47,10 +47,18 @@ def write_voc(data, path):
         print("Creating vocabulary for diagnose, medication and procedure codes")
         np.save(path + 'MLM_diagnosproccodes.npy', diag_med_proc_codes)
     
+    diag_proc_codes = np.append(diag_codes, proc_codes) 
+    if not os.path.isfile(path + 'MLM_diagnosnotmedproccodes.npy'):
+        print("Creating vocabulary for diagnose and procedure codes")
+        np.save(path + 'MLM_diagnosnotmedproccodes.npy', diag_proc_codes)
+        
+        
     ages = np.concatenate(data['age'].tolist(), axis=0)
     if not os.path.isfile(path + 'MLM_age.npy'):
         print("Creating vocabulary for age")
         np.save(path + 'MLM_age.npy', ages)
+        
+    
         
 def load_data(data_name):
     
@@ -122,7 +130,7 @@ def main():
         Synthea: Synthea/Final_cohorts/,
         MIMIC: MIMIC/
     '''
-    dataset_name = 'Synthea/Final_cohorts/' 
+    dataset_name = 'Synthea/Final_cohorts/'#'Synthea/Final_cohorts/' 
     train, val, test = load_data(dataset_name)
     
     
@@ -135,13 +143,19 @@ def main():
         3. D
     
     '''
-    feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
-    if (feature_types['diagnosis'] and feature_types['medications'] and not feature_types['procedures']):
+    feature_types = {'diagnosis':True, 'medications':True, 'procedures':True}
+    if (feature_types['diagnosis'] and feature_types['medications'] and not feature_types['procedures']): # Use diagnosis and meds
         print("Use diagnosis and meds")
         code_voc = 'MLM_diagnosmedcodes.npy' # Voc för diagnos och meds
         age_voc = 'MLM_age.npy'
+    
+    elif (feature_types['diagnosis'] and feature_types['procedures'] and not feature_types['medications']): # Use diagnosis and procedures
+        print("Use only diagnosis and procedures")
+        code_voc = 'MLM_diagnosnotmedproccodes.npy'
+        age_voc = 'MLM_age.npy'
         
-    elif (feature_types['diagnosis'] and not feature_types['medications']):
+        
+    elif (feature_types['diagnosis'] and not (feature_types['medications'] and feature_types['procedures'])): # Use only diagnosis
         print("Use only diagnosis")
         code_voc = 'MLM_diagnoscodes.npy' # Voc för endast diagnoser
         age_voc = 'MLM_age.npy'
@@ -154,6 +168,7 @@ def main():
     files = {'code':'../data/vocabularies/' + dataset_name + code_voc,
              'age':'../data/vocabularies/' + dataset_name + age_voc,
             }
+    
     tokenizer = EHRTokenizer(task='MLM', filenames=files)
     model_config = {
         'vocab_size': len(tokenizer.getVoc('code').keys()), # number of disease + symbols for word embedding
@@ -176,7 +191,7 @@ def main():
         'epochs':20,
     }
     
-    stats_path = '../data/train_stats/Synthea/' # Path till conditional values, om mimic körs, byt Synthea mot MIMIC
+    stats_path = '../data/train_stats/Synthea/' # Path till conditional values, om mimic körs, byt Synthea mot MIMIC2
     condfiles = {'dd':stats_path + 'dd_cond_probs.empirical.p', 
                  'dp':stats_path + 'dp_cond_probs.empirical.p',
                  'dm':stats_path + 'dm_cond_probs.empirical.p',
@@ -190,13 +205,13 @@ def main():
     
     num_gpus = 8
     folderpath = '../data/pytorch_datasets/' + dataset_name
-    traind = EHRDataset(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_d')
-    vald = EHRDataset(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_d')
-    testd = EHRDataset(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_d')
+    traind = EHRDataset(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles, save_folder=folderpath, tokenizer=tokenizer, run_type='train_dmp')
+    vald = EHRDataset(val, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='val_dmp')
+    testd = EHRDataset(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types, save_folder=folderpath, conditional_files=condfiles, run_type='test_dmp')
     
     
     tensorboarddir = '../logs/'
-    PATH = '../saved_models/MLM/BEHRT_synthea' # Pathen som modellen ska sparas
+    PATH = '../saved_models/MLM/BEHRT_+p+m_synthea' # Pathen som modellen ska sparas
     
     trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
     valloader = torch.utils.data.DataLoader(vald, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)

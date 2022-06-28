@@ -49,7 +49,7 @@ def get_conf(tokenizer):
 
     return model_config
 
-def train_test_model(config, tokenizer, trainloader, testloader, modelname, tensorboarddir, num_gpus, path_to_model, save_path, text_file_path, save_model=False):
+def train_test_model(config, tokenizer, trainloader, testloader, modelname, tensorboarddir, num_gpus, path_to_model, save_path, text_file_path, mlb, save_model=False):
     
     trainer = pl.Trainer(
             max_epochs=config['epochs'], 
@@ -64,13 +64,12 @@ def train_test_model(config, tokenizer, trainloader, testloader, modelname, tens
         )
     
     conf = BertConfig(config)
-    model = BertSinglePrediction(conf, num_labels=1) 
-    
+    model = BertMultiLabelPrediction(conf, num_labels=len(tokenizer.getVoc('label').keys())) 
     model = load_model(path_to_model, model)
     params = list(model.named_parameters())
     optim = adam(params, optim_param)
     
-    patienttrajectory = TrainerBinaryPrediction(model, optim, optim_param)
+    patienttrajectory = TrainerCodes(model, optim, optim_param, binarizer=mlb)
     
     trainer.fit(
         patienttrajectory, 
@@ -99,24 +98,32 @@ def train_test_model(config, tokenizer, trainloader, testloader, modelname, tens
         torch.save(model.state_dict(), save_path)
     
     
-def main(dataset_name):
+def main(dataset_name, modelname):
     
     nfolds = 3
     
     foldpath = '../data/cross_val/{}'.format(dataset_name)
     
-    feature_types = {'diagnosis':True, 'medications':True, 'procedures':True}
-    if (feature_types['diagnosis'] and feature_types['medications'] and not feature_types['procedures']):
-        print("Do only use diagnosis")
-        code_voc = 'MLM_diagnosmedcodes.npy'
+    feature_types = {'diagnosis':True, 'medications':False, 'procedures':False}
+    if (feature_types['diagnosis'] and feature_types['medications'] and not feature_types['procedures']): # Use diagnosis and meds
+        print("Use diagnosis and meds")
+        code_voc = 'MLM_diagnosmedcodes.npy' # Voc för diagnos och meds
+        age_voc = 'MLM_age.npy'
+    
+    elif (feature_types['diagnosis'] and feature_types['procedures'] and not feature_types['medications']): # Use diagnosis and procedures
+        print("Use only diagnosis and procedures")
+        code_voc = 'MLM_diagnosnotmedproccodes.npy'
+        age_voc = 'MLM_age.npy'
         
-    elif (feature_types['diagnosis'] and not feature_types['medications']):
-        code_voc = 'MLM_diagnoscodes.npy'
+        
+    elif (feature_types['diagnosis'] and not (feature_types['medications'] and feature_types['procedures'])): # Use only diagnosis
+        print("Use only diagnosis")
+        code_voc = 'MLM_diagnoscodes.npy' # Voc för endast diagnoser
+        age_voc = 'MLM_age.npy'
     else:
-        code_voc = 'MLM_diagnosproccodes.npy'
-        
-        
-    age_voc = 'MLM_age.npy'
+        print("Use all features")
+        code_voc = 'MLM_diagnosproccodes.npy' # Voc för diagnoser, procedures, medications
+        age_voc = 'MLM_age.npy'
     
     if dataset_name == 'Synthea':
         files = {'code':'../data/vocabularies/' + dataset_name  + '/Final_cohorts/'+ code_voc,
@@ -124,8 +131,8 @@ def main(dataset_name):
                  'labels':''
                 }
     else:
-        files = {'code':'../data/vocabularies/' + dataset_name  + '/Final_cohorts/'+ code_voc,
-                 'age':'../data/vocabularies/' + dataset_name + '/Final_cohorts/' +  age_voc,
+        files = {'code':'../data/vocabularies/' + dataset_name  + '/'+ code_voc,
+                 'age':'../data/vocabularies/' + dataset_name + '/' +  age_voc,
                  'labels':''
                 }
         
@@ -149,39 +156,50 @@ def main(dataset_name):
     num_gpus = 8
     nextvisit = 5
     
-    for fold_idx in range(nfolds):
+    #for fold_idx in range(nfolds):
         
-        current_fold = fold_idx + 1
+    current_fold = 3 #fold_idx + 1
+
+    folderpath = '../data/cross_val/' + dataset_name + '/nextvisit{}/fold{}'.format(nextvisit, current_fold)
+
+    textfilepath = '../data/cross_val/' + dataset_name + '/nextvisit{}/fold{}'.format(nextvisit, current_fold)
+
+    train = pd.read_parquet(folderpath+ '/train.parquet')
+    test = pd.read_parquet(folderpath + '/test.parquet')
+
+    labelvoc = folderpath + '/Nextvisit_{}_labelcodes_fold{}.npy'.format(nextvisit, current_fold)
+    files['labels'] = labelvoc
+    
+    tokenizer = EHRTokenizer(task='nextvisit', filenames=files)
+
+    mlb = MultiLabelBinarizer(classes=list(tokenizer.getVoc('label').values()))
+    mlb.fit([[each] for each in list(tokenizer.getVoc('label').values())])
+
+
+    config = get_conf(tokenizer)
+    
+    visits_to_train_on = 4
+    
+    traind = EHRDatasetCodePrediction(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles,
+                                      train_visits=visits_to_train_on,labelvisit=nextvisit, save_folder=folderpath, tokenizer=tokenizer,
+                                      run_type='train_nextvisit_d')
+
+    testd = EHRDatasetCodePrediction(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types,
+                                     train_visits=visits_to_train_on, labelvisit=nextvisit, save_folder=folderpath, conditional_files=condfiles,
+                                     run_type='test_nextvisit_d')
+    
+    trainloader = torch.utils.data.DataLoader(traind, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True,num_workers=4*num_gpus)
+    testloader = torch.utils.data.DataLoader(testd, batch_size=train_params['batch_size'], shuffle=False, pin_memory=True, num_workers=4*num_gpus)
+
+    PATH = '../saved_models/MLM/{}_{}'.format(modelname, dataset_name.lower())
+    tensorboarddir = '../logs/'
+    
+    save_path = '../saved_models/NextxVisit/{}_{}_NextVisit{}_trainvisits{}_fold{}'.format(modelname, dataset_name.lower(), nextvisit, nextvisit, current_fold)
+    train_test_model(config, tokenizer, trainloader, testloader, modelname, tensorboarddir, num_gpus, PATH, save_path, textfilepath, mlb, save_model=True)
         
-        folderpath = '../data/cross_val/' + dataset_name + '/nextvisit{}/fold{}'.format(nextvisit, current_fold)
         
-        textfilepath = '../data/cross_val/' + dataset_name + '/nextvisit{}/fold{}'.format(nextvisit, current_fold)
-        
-        train = pd.read_parquet(folderpath+ '/train.parquet')
-        test = pd.read_parquet(folderpath + '/test.parquet')
-        
-        labelvoc = folderpath + '/Nextvisit_{}_labelcodes_fold{}.npy'.format(nextvisit, current_fold)
-        files['labels'] = labelvoc
-        
-        mlb = MultiLabelBinarizer(classes=list(tokenizer.getVoc('label').values()))
-        mlb.fit([[each] for each in list(tokenizer.getVoc('label').values())])
-        
-        tokenizer = EHRTokenizer(task='nextvisit', filenames=files)
-        
-        config = get_conf(tokenizer)
-        
-        traind = EHRDatasetCodePrediction(train, max_len=train_params['max_len_seq'], feature_types=feature_types, conditional_files=condfiles,
-                                          train_visits=visits_to_train_on,labelvisit=labelvisit, save_folder=folderpath, tokenizer=tokenizer,
-                                          run_type='train_dmp_nextvisit')
-        
-        testd = EHRDatasetCodePrediction(test, max_len=train_params['max_len_seq'], tokenizer=tokenizer, feature_types=feature_types,
-                                         train_visits=visits_to_train_on, labelvisit=labelvisit, save_folder=folderpath, conditional_files=condfiles,
-                                         run_type='test_dmp_nextvisit')
-        
-        modelname = 'BEHRT'
-        PATH = '../saved_models/MLM/{}_synthea'.format(modelname)
-         save_path = '../saved_models/NextxVisit/{}_synthea_NextVisit{}_trainvisits{}_fold{}'.format(modelname, nextvisit, nextvisit, current_fold)
-        train_test_model(config, tokenizer, trainloader, testloader, modelname, tensorboarddir, num_gpus, PATH, save_path, textfilepath, save_model=True)
-        
-        
-        
+if __name__=='__main__':
+    dataname = 'MIMIC' #'Synthea' #'MIMIC'
+    modelname = 'CondBEHRT_-p-m' #'CondBEHRT_-p-m' #'CondBEHRT'
+    
+    main(dataname, modelname)

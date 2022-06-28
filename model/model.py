@@ -166,6 +166,8 @@ class BertCustomSelfAttention(nn.Module):
         v = self.value(hidden_states)
         v = self.transpose_for_scores(v)
         
+        attention_weights = attention
+        
         attention = attention + attention_mask
         attention_scores = nn.Softmax(dim=-1)(attention)
         attention_scores = self.dropout(attention_scores)
@@ -174,7 +176,7 @@ class BertCustomSelfAttention(nn.Module):
         context_layer = final_attention.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)    
-        return context_layer, attention_scores
+        return context_layer, attention_weights
     
 class BertSelfAttention(nn.Module):
     def __init__(self, config):
@@ -211,6 +213,9 @@ class BertSelfAttention(nn.Module):
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         # Apply the attention mask is (precomputed for all layers in BertModel forward() function)
+        
+        attention_weights = nn.Softmax(dim=-1)(attention_scores)
+        
         attention_scores = attention_scores + attention_mask
 
         # Normalize the attention scores to probabilities.
@@ -223,7 +228,7 @@ class BertSelfAttention(nn.Module):
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
-        return context_layer, attention_probs
+        return context_layer, attention_weights
     
 class BertSelfOutput(nn.Module):
     def __init__(self, config):
